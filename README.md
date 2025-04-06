@@ -18,6 +18,7 @@ This project implements a Model Context Protocol server that connects to the Pla
 - Global activity resource (`activity://global`)
 
 ### Tools
+- Plan listing and search tools (`list_plans`, `find_plans`, `get_plan_by_name`)
 - Plan management tools (`create_plan`, `update_plan`)
 - Node management tools (`create_node`, `update_node_status`)
 - Comment and log tools (`add_comment`, `add_log_entry`)
@@ -108,6 +109,22 @@ Please help me understand the structure of plan [plan_id]. You can use the MCP r
 ```
 
 ### Using Tools
+
+#### Listing and Finding Plans
+
+```
+Can you show me all of my active plans? I need to see what projects I'm currently working on.
+```
+
+```
+Let me see my game development plan. I need to check its current structure and progress.
+```
+
+```
+Can you find any plans related to marketing? I need to review our marketing strategies.
+```
+
+#### Creating and Updating Plans
 
 ```
 I need to create a new plan for my project. The title should be "Website Redesign" and it should include the following phases:
