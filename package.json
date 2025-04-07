@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "jest"
+    "test": "jest",
+    "setup": "echo 'Please generate an API token from the Agent Planner UI and add it to your .env file.'"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.8.0",

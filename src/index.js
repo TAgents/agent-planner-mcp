@@ -14,14 +14,17 @@ async function main() {
   try {
     // Log environment settings
     console.error(`API URL: ${process.env.API_URL || 'http://localhost:3000'}`);
-    console.error(`API Token: ${process.env.API_TOKEN ? '***' + process.env.API_TOKEN.slice(-4) : 'NOT SET'}`);
+    
+    // Check for both old and new token environment variables
+    const userApiToken = process.env.USER_API_TOKEN || process.env.API_TOKEN;
+    console.error(`User API Token: ${userApiToken ? '***' + userApiToken.slice(-4) : 'NOT SET'}`);
     console.error(`MCP Server Name: ${process.env.MCP_SERVER_NAME || 'planning-system-mcp'}`);
     console.error(`MCP Server Version: ${process.env.MCP_SERVER_VERSION || '0.1.0'}`);
     
     // Validate required environment variables
-    if (!process.env.API_TOKEN) {
-      throw new Error('API_TOKEN environment variable is required. Please set it in .env file.');
-    }
+  if (!userApiToken) {
+    throw new Error('USER_API_TOKEN environment variable is required. Please generate one from the Agent Planner UI and set it in .env file.');
+  }
     
     // Create MCP server instance
     const server = new Server({

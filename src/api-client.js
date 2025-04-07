@@ -4,12 +4,16 @@
 const axios = require('axios');
 require('dotenv').config();
 
+// Define authentication scheme for API tokens
+const API_KEY_SCHEME = 'ApiKey';
+const userApiToken = process.env.USER_API_TOKEN || process.env.API_TOKEN; // Support both new and old env var names
+
 // Create API client instance
 const apiClient = axios.create({
   baseURL: process.env.API_URL || 'http://localhost:3000',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${process.env.API_TOKEN}`
+    'Authorization': userApiToken ? `${API_KEY_SCHEME} ${userApiToken}` : undefined
   }
 });
 
@@ -27,8 +31,8 @@ apiClient.interceptors.response.use(
   },
   error => {
     if (error.response && error.response.status === 401) {
-      console.error('API Error: Authentication failed. Please check that your API token is valid.');
-      console.error('This may be due to the migration to Supabase authentication. Please regenerate your token.');
+      console.error('API Error: Authentication failed (401). Please check that your USER_API_TOKEN is correct, valid, and not revoked.');
+      console.error('If you are still using the old API_TOKEN, please generate a USER_API_TOKEN from the agent-planner UI.');
     } else {
       console.error('API Error:', error.response ? error.response.data : error.message);
     }
