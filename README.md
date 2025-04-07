@@ -67,7 +67,13 @@ MCP_SERVER_VERSION=0.1.0
 NODE_ENV=development
 ```
 
-4. Start the server
+4. Generate a Supabase session token
+```bash
+node generate-supabase-session.js
+```
+See [AUTHENTICATION.md](AUTHENTICATION.md) for more details on the authentication system.
+
+5. Start the server
 ```bash
 npm start
 ```

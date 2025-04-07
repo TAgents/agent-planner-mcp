@@ -26,7 +26,12 @@ apiClient.interceptors.response.use(
     return response;
   },
   error => {
-    console.error('API Error:', error.response ? error.response.data : error.message);
+    if (error.response && error.response.status === 401) {
+      console.error('API Error: Authentication failed. Please check that your API token is valid.');
+      console.error('This may be due to the migration to Supabase authentication. Please regenerate your token.');
+    } else {
+      console.error('API Error:', error.response ? error.response.data : error.message);
+    }
     return Promise.reject(error);
   }
 );
