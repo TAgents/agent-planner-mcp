@@ -56,6 +56,11 @@ function setupResources(server) {
           description: "Artifacts attached to a specific node"
         },
         {
+          uriTemplate: "plan://{planId}/node/{nodeId}/artifact/{artifactId}",
+          name: "Artifact Content",
+          description: "Content of a specific artifact"
+        },
+        {
           uri: "activity://global",
           name: "Global Activity",
           description: "Recent activity across all plans"
@@ -207,11 +212,51 @@ function setupResources(server) {
           contents: [
             {
               uri,
-              text: formatArtifactsText(artifacts),
+              text: formatArtifactsText(artifacts, planId, nodeId),
               mimeType: "text/markdown"
             }
           ]
         };
+      }
+      
+      // Single Artifact Content
+      const artifactContentMatch = uri.match(/^plan:\/\/([^\/]+)\/node\/([^\/]+)\/artifact\/([^\/]+)$/);
+      if (artifactContentMatch) {
+        const planId = artifactContentMatch[1];
+        const nodeId = artifactContentMatch[2];
+        const artifactId = artifactContentMatch[3];
+        
+        try {
+          // First, get the artifact details
+          const artifact = await apiClient.artifacts.getArtifact(planId, nodeId, artifactId);
+          
+          // Then, get the artifact content
+          const content = await apiClient.artifacts.getArtifactContent(planId, nodeId, artifactId);
+          
+          // Determine the MIME type
+          const mimeType = artifact.content_type || "text/plain";
+          
+          return {
+            contents: [
+              {
+                uri,
+                text: content,
+                mimeType: mimeType
+              }
+            ]
+          };
+        } catch (error) {
+          console.error(`Error fetching artifact content:`, error);
+          return {
+            contents: [
+              {
+                uri,
+                text: `Error retrieving artifact content: ${error.message}`,
+                mimeType: "text/plain"
+              }
+            ]
+          };
+        }
       }
       
       throw new Error(`Resource not found: ${uri}`);
@@ -487,16 +532,24 @@ function formatLogsText(logs) {
 }
 
 /**
- * Format artifacts as markdown text
+ * Format artifacts as markdown text with improved access information
  * @param {Array} artifacts - List of artifacts
+ * @param {string} planId - Plan ID
+ * @param {string} nodeId - Node ID 
  * @returns {string} - Markdown text
  */
-function formatArtifactsText(artifacts) {
+function formatArtifactsText(artifacts, planId, nodeId) {
   if (!artifacts || artifacts.length === 0) {
     return "# Artifacts\n\nNo artifacts found.";
   }
   
   let text = "# Artifacts\n\n";
+  
+  text += "## Access Instructions\n\n";
+  text += "To access the content of these artifacts, you can use any of these methods:\n\n";
+  text += "1. **Use the Resource URI**: Access using the MCP resource URI pattern `plan://{planId}/node/{nodeId}/artifact/{artifactId}`\n";
+  text += "2. **Use the Get Artifact Tool**: Call the `get_artifact` tool with parameters: `plan_id`, `node_id`, and `artifact_id`\n";
+  text += "3. **Search by Name**: Call the `get_artifact_by_name` tool with parameters: `plan_id`, `node_id`, and `name`\n\n";
   
   artifacts.forEach(artifact => {
     const date = new Date(artifact.created_at).toLocaleString();
@@ -504,8 +557,19 @@ function formatArtifactsText(artifacts) {
     text += `## ${artifact.name} (${date})\n\n`;
     text += `**ID:** \`${artifact.id}\`\n\n`;
     text += `**Content Type:** ${artifact.content_type}\n\n`;
-    text += `**URL:** ${artifact.url}\n\n`;
-    text += `**Created By:** \`${artifact.created_by}\`\n\n`;
+    text += `**Access Resource URI:** \`plan://${planId}/node/${nodeId}/artifact/${artifact.id}\`\n\n`;
+    
+    // Add direct tool call examples
+    text += `**Tool Example:**\n\`\`\`json
+{
+  "tool": "get_artifact",
+  "parameters": {
+    "plan_id": "${planId}",
+    "node_id": "${nodeId}",
+    "artifact_id": "${artifact.id}"
+  }
+}
+\`\`\`\n\n`;
     
     if (artifact.metadata && Object.keys(artifact.metadata).length > 0) {
       text += `**Metadata:**\n\n\`\`\`json\n${JSON.stringify(artifact.metadata, null, 2)}\n\`\`\`\n\n`;
