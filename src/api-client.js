@@ -4,16 +4,25 @@
 const axios = require('axios');
 require('dotenv').config();
 
-// Define authentication scheme for API tokens
-const API_KEY_SCHEME = 'ApiKey';
+// Get token from environment
 const userApiToken = process.env.USER_API_TOKEN || process.env.API_TOKEN; // Support both new and old env var names
+
+// Determine proper authentication scheme
+// If token looks like a JWT (has two dots), use Bearer scheme, otherwise use ApiKey
+const getAuthScheme = (token) => {
+  if (!token) return null;
+  // Simple check if it's a JWT (contains two dots for header.payload.signature)
+  return token.split('.').length === 3 ? 'Bearer' : 'ApiKey';
+};
+
+const authScheme = getAuthScheme(userApiToken);
 
 // Create API client instance
 const apiClient = axios.create({
   baseURL: process.env.API_URL || 'http://localhost:3000',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': userApiToken ? `${API_KEY_SCHEME} ${userApiToken}` : undefined
+    'Authorization': userApiToken ? `${authScheme} ${userApiToken}` : undefined
   }
 });
 
@@ -348,17 +357,30 @@ const search = {
    * Search within a plan
    * @param {string} planId - Plan ID
    * @param {string} query - Search query
-   * @returns {Promise<Array>} - Search results
+   * @returns {Promise<Object>} - Search results
    */
   searchPlan: async (planId, query) => {
-    const response = await apiClient.get(`/search/plan/${planId}?q=${encodeURIComponent(query)}`);
-    return response.data;
+    console.log(`Searching plan ${planId} for "${query}"`);
+    try {
+      const response = await apiClient.get(`/search/plan/${planId}`, {
+        params: { query: encodeURIComponent(query) }
+      });
+      console.log('Search results:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error searching plan:', error.message);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      throw error;
+    }
   },
 
   /**
    * Global search across all plans
    * @param {string} query - Search query
-   * @returns {Promise<Array>} - Search results
+   * @returns {Promise<Object>} - Search results
    */
   globalSearch: async (query) => {
     const response = await apiClient.get(`/search?q=${encodeURIComponent(query)}`);
