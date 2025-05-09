@@ -365,7 +365,13 @@ const search = {
       const response = await apiClient.get(`/search/plan/${planId}`, {
         params: { query: encodeURIComponent(query) }
       });
-      console.log('Search results:', response.data);
+      
+      // Log the actual response format for debugging
+      console.log('Search results response format:', 
+        typeof response.data === 'object' ? Object.keys(response.data).join(', ') : typeof response.data);
+      console.log('Search results count:', 
+        response.data && response.data.results ? response.data.results.length : 'unknown');
+        
       return response.data;
     } catch (error) {
       console.error('Error searching plan:', error.message);

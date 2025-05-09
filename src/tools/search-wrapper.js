@@ -19,11 +19,15 @@ async function searchPlan(planId, query) {
     // Call the original search function from the API client
     const response = await apiClient.search.searchPlan(planId, query);
     
+    // Log the actual response for debugging
+    console.log('Search plan response format:', JSON.stringify(response, null, 2));
+    
     // Extract and return just the results array
     if (response && response.results && Array.isArray(response.results)) {
       return response.results;
     } else {
       console.error('Unexpected search response format:', JSON.stringify(response));
+      // Return empty array on unexpected format
       return [];
     }
   } catch (error) {

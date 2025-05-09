@@ -593,16 +593,20 @@ function setupTools(server) {
       // Search tool
       if (name === "search_plan") {
         const { plan_id, query } = args;
-        result = await apiClient.search.searchPlan(plan_id, query);
+        
+        // Use the search wrapper which properly handles the API response format
+        // and returns just the results array
+        const searchWrapper = require('./tools/search-wrapper');
+        const searchResults = await searchWrapper.searchPlan(plan_id, query);
         
         let resultText = `# Search Results for "${query}"\n\n`;
-        if (result.length === 0) {
+        if (!searchResults || searchResults.length === 0) {
           resultText += "No results found.\n";
         } else {
-          resultText += `Found ${result.length} results:\n\n`;
+          resultText += `Found ${searchResults.length} results:\n\n`;
           
-          result.forEach((item, index) => {
-            resultText += `## Result ${index + 1}: ${item.title} (${item.type})\n\n`;
+          searchResults.forEach((item, index) => {
+            resultText += `## Result ${index + 1}: ${item.title || 'Untitled'} (${item.type || 'Unknown'})\n\n`;
             if (item.content) {
               resultText += `${item.content.substring(0, 200)}${item.content.length > 200 ? '...' : ''}\n\n`;
             }
