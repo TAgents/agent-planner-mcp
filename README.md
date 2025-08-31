@@ -1,36 +1,44 @@
 # Planning System MCP Server
 
-An MCP (Model Context Protocol) server interface for the Planning System API, enabling AI agents to interact with planning data.
+A Model Context Protocol (MCP) server interface for the Planning System API, enabling AI agents to interact with planning data through powerful, efficient tools.
 
 ## Overview
 
-This project implements a Model Context Protocol server that connects to the Planning System API, providing AI agents with access to planning resources, tools, and prompts through a standardized interface.
+This MCP server connects to the Planning System API, providing AI agents with comprehensive planning capabilities through a clean, structured interface. All interactions use JSON responses for easy parsing and processing.
 
-## Features
+## ✨ Key Features
 
-### Resources
-- Plans list resource (`plans://list`)
-- Plan details resource (`plan://{planId}`)
-- Plan structure resource (`plan://{planId}/structure`)
-- Node details resource (`plan://{planId}/node/{nodeId}`)
-- Plan activity resource (`plan://{planId}/activity`)
-- Node comments, logs, and artifacts resources
-- Global activity resource (`activity://global`)
+### Core Capabilities
+- **Full CRUD Operations**: Create, read, update, and delete plans, nodes, and artifacts
+- **Unified Search**: Single powerful search tool for all contexts (global, plans, nodes)
+- **Batch Operations**: Update multiple nodes or retrieve multiple artifacts efficiently
+- **Rich Context**: Get comprehensive node context including ancestry, children, logs, and artifacts
+- **Structured Responses**: Clean JSON data for easy agent processing
 
-### Tools
-- Plan listing and search tools (`list_plans`, `find_plans`, `get_plan_by_name`)
-- Plan management tools (`create_plan`, `update_plan`)
-- Node management tools (`create_node`, `update_node_status`)
-- Comment and log tools (`add_comment`, `add_log_entry`)
-- Artifact management tool (`add_artifact`)
-- Search tool (`search_plan`)
+### Available Tools
 
-### Prompts
-- Plan analysis prompt (`analyze_plan`)
-- Improvement suggestions prompt (`suggest_improvements`)
-- Implementation steps generator (`generate_implementation_steps`)
-- Plan summarization prompt (`summarize_plan`)
-- Status report generator (`generate_status_report`)
+#### Planning & Search
+- `search` - Universal search across all scopes with filters
+- `create_plan` - Create new plans
+- `update_plan` - Update plan properties
+- `delete_plan` - Delete entire plans
+- `get_plan_structure` - Get hierarchical plan structure
+- `get_plan_summary` - Get comprehensive statistics and summary
+
+#### Node Management
+- `create_node` - Create phases, tasks, or milestones
+- `update_node` - Update any node properties
+- `delete_node` - Delete nodes and their children
+- `move_node` - Reorder or reparent nodes
+- `get_node_context` - Get rich contextual information
+- `get_node_ancestry` - Get path from root to node
+- `batch_update_nodes` - Update multiple nodes at once
+
+#### Collaboration & Tracking
+- `add_log` - Add log entries (including comments, progress, reasoning, etc.)
+- `get_logs` - Retrieve filtered log entries
+- `manage_artifact` - Add, get, search, or list artifacts
+- `batch_get_artifacts` - Retrieve multiple artifacts efficiently
 
 ## Getting Started
 
@@ -58,20 +66,20 @@ npm install
 ```bash
 cp .env.example .env
 ```
-Edit the `.env` file with your Planning System API information:
+
+Edit the `.env` file:
 ```
 API_URL=http://localhost:3000
-API_TOKEN=your_api_token_here
+USER_API_TOKEN=your_api_token_here
 MCP_SERVER_NAME=planning-system-mcp
-MCP_SERVER_VERSION=0.1.0
+MCP_SERVER_VERSION=0.2.0
 NODE_ENV=development
 ```
 
-4. Generate a Supabase session token
+4. Generate an API token (if needed)
 ```bash
-node generate-supabase-session.js
+node generate-api-token.js
 ```
-See [AUTHENTICATION.md](AUTHENTICATION.md) for more details on the authentication system.
 
 5. Start the server
 ```bash
@@ -80,9 +88,8 @@ npm start
 
 ## Using with Claude Desktop
 
-To use this MCP server with Claude Desktop:
+Add to your `claude_desktop_config.json`:
 
-1. Add an entry to your `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
@@ -93,96 +100,165 @@ To use this MCP server with Claude Desktop:
       ],
       "env": {
         "API_URL": "http://localhost:3000",
-        "API_TOKEN": "your_api_token_here"
+        "USER_API_TOKEN": "your_api_token_here"
       }
     }
   }
 }
 ```
 
-2. Restart Claude Desktop
+Then restart Claude Desktop to load the planning tools.
 
-3. The planning system tools and resources will be available in Claude
+## Example Usage
 
-## Example Usage in Claude
+### Search Examples
 
-Here are some example prompts you can use in Claude once the MCP server is connected:
+```javascript
+// Global search
+search({ 
+  scope: "global", 
+  query: "API integration",
+  filters: { type: "task", status: "in_progress" }
+})
 
-### Using Resources
-
-```
-Please help me understand the structure of plan [plan_id]. You can use the MCP resources to access the plan details and structure.
-```
-
-### Using Tools
-
-#### Listing and Finding Plans
-
-```
-Can you show me all of my active plans? I need to see what projects I'm currently working on.
-```
-
-```
-Let me see my game development plan. I need to check its current structure and progress.
+// Search within a specific plan
+search({ 
+  scope: "plan", 
+  scope_id: "plan-123",
+  query: "testing"
+})
 ```
 
-```
-Can you find any plans related to marketing? I need to review our marketing strategies.
+### Plan Management
+
+```javascript
+// Create a plan with initial structure
+create_plan({ 
+  title: "Product Launch Q1 2025",
+  description: "Complete product launch plan",
+  status: "active"
+})
+
+// Add nodes to the plan
+create_node({
+  plan_id: "plan-123",
+  node_type: "phase",
+  title: "Market Research",
+  description: "Initial market analysis and competitor research"
+})
 ```
 
-#### Creating and Updating Plans
+### Batch Operations
+
+```javascript
+// Update multiple nodes efficiently
+batch_update_nodes({
+  plan_id: "plan-123",
+  updates: [
+    { node_id: "node-1", status: "completed" },
+    { node_id: "node-2", status: "in_progress" },
+    { node_id: "node-3", description: "Updated requirements" }
+  ]
+})
+
+// Get multiple artifacts at once
+batch_get_artifacts({
+  plan_id: "plan-123",
+  artifact_requests: [
+    { node_id: "node-1", artifact_id: "art-1" },
+    { node_id: "node-2", artifact_id: "art-2" }
+  ]
+})
+```
+
+### Rich Context
+
+```javascript
+// Get comprehensive node information
+get_node_context({
+  plan_id: "plan-123",
+  node_id: "node-456"
+})
+// Returns: node details, children, logs, artifacts, plan info
+
+// Track node ancestry
+get_node_ancestry({
+  plan_id: "plan-123",
+  node_id: "node-456"
+})
+// Returns: path from root to node
+```
+
+## Project Structure
 
 ```
-I need to create a new plan for my project. The title should be "Website Redesign" and it should include the following phases:
-1. Research and Planning
-2. Design
-3. Development
-4. Testing
-5. Deployment
-
-Please use the MCP tools to create this plan and set up the initial structure.
-```
-
-### Using Prompts
-
-```
-I'd like to analyze my plan [plan_id] to see if it's well-structured and complete. Can you use the analyze_plan prompt to help me?
+src/
+├── index.js              # Main entry point
+├── tools.js              # Tool implementations
+├── api-client.js         # API client with axios
+└── tools/
+    └── search-wrapper.js # Search functionality wrapper
 ```
 
 ## Development
 
-### Project Structure
-
-- `src/index.js` - Main entry point
-- `src/resources.js` - MCP resources implementation
-- `src/tools.js` - MCP tools implementation
-- `src/prompts.js` - MCP prompts implementation
-- `src/api-client.js` - Client for interacting with the Planning System API
-
 ### Running in Development Mode
 
 ```bash
-npm run dev
+npm run dev  # Auto-restart on changes
 ```
 
-This will start the server with nodemon, which automatically restarts the server when you make changes to the code.
+### Environment Variables
+
+- `API_URL` - Planning System API URL
+- `USER_API_TOKEN` - Authentication token
+- `MCP_SERVER_NAME` - Server name (default: planning-system-mcp)
+- `MCP_SERVER_VERSION` - Server version (default: 0.2.0)
+- `NODE_ENV` - Environment (development/production)
+
+### Testing Tools
+
+```javascript
+// Test search functionality
+search({ scope: "global", query: "test" })
+
+// Test node operations
+create_node({ plan_id: "...", node_type: "task", title: "Test" })
+update_node({ plan_id: "...", node_id: "...", status: "completed" })
+delete_node({ plan_id: "...", node_id: "..." })
+
+// Test batch operations
+batch_update_nodes({ plan_id: "...", updates: [...] })
+```
 
 ## Troubleshooting
 
 ### Common Issues
 
-- **Connection errors**: Make sure the Planning System API is running and accessible at the URL specified in your .env file.
-- **Authentication errors**: Verify that your API token is valid and has the necessary permissions.
-- **Transport errors**: Check that Claude Desktop is properly configured to run the MCP server.
+- **Connection errors**: Ensure the Planning System API is running
+- **Authentication errors**: Verify your USER_API_TOKEN is valid
+- **Tool errors**: Check error messages in console output
 
-### Debugging
+### Debug Mode
 
-Set the `NODE_ENV` environment variable to `development` for more verbose logging:
-
+Enable verbose logging:
 ```bash
 NODE_ENV=development npm start
 ```
 
+## Performance Tips
+
+1. Use batch operations when updating multiple items
+2. Use appropriate search scopes to minimize API calls
+3. Cache plan structures when making multiple operations
+4. Apply filters to limit result sets
+
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see LICENSE file for details.
+
+## Support
+
+- Report bugs via GitHub Issues
+- See [PDR.md](./PDR.md) for technical design details
+- Check [CHANGELOG.md](./CHANGELOG.md) for version history

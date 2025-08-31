@@ -1,24 +1,112 @@
 /**
  * MCP Tools Implementation
+ * 
+ * Provides comprehensive planning tools for AI agents:
+ * - Full CRUD operations on all entities
+ * - Unified search across all scopes
+ * - Batch operations for efficiency
+ * - Rich context retrieval
+ * - Text responses for Claude Desktop compatibility
  */
+
 const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const apiClient = require('./api-client');
+
+/**
+ * Format JSON data as text for Claude Desktop
+ */
+function formatResponse(data) {
+  // If data is an error object with a message, return just the message
+  if (data && data.error) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: data.error
+        }
+      ]
+    };
+  }
+  
+  // For successful responses, stringify the data
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(data, null, 2)
+      }
+    ]
+  };
+}
 
 /**
  * Setup tools for the MCP server
  * @param {Server} server - MCP server instance
  */
 function setupTools(server) {
-  console.error('Setting up MCP tools...');
+  // Suppress console logs when not in debug mode
+  if (process.env.NODE_ENV !== 'development') {
+    // Silent mode for production
+  } else {
+    console.error('Setting up MCP tools...');
+  }
   
   // Handler for listing available tools
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [
-        // Plan listing tool
+        // ===== UNIFIED SEARCH TOOL =====
+        {
+          name: "search",
+          description: "Universal search tool for plans, nodes, and content",
+          inputSchema: {
+            type: "object",
+            properties: {
+              scope: { 
+                type: "string",
+                description: "Search scope",
+                enum: ["global", "plans", "plan", "node"],
+                default: "global"
+              },
+              scope_id: { 
+                type: "string", 
+                description: "Plan ID (if scope is 'plan') or Node ID (if scope is 'node')"
+              },
+              query: { 
+                type: "string", 
+                description: "Search query"
+              },
+              filters: {
+                type: "object",
+                description: "Optional filters",
+                properties: {
+                  status: { 
+                    type: "string",
+                    description: "Filter by status",
+                    enum: ["draft", "active", "completed", "archived", "not_started", "in_progress", "blocked"]
+                  },
+                  type: {
+                    type: "string",
+                    description: "Filter by type",
+                    enum: ["plan", "node", "phase", "task", "milestone", "artifact", "log"]
+                  },
+                  limit: {
+                    type: "integer",
+                    description: "Maximum number of results",
+                    default: 20
+                  }
+                }
+              }
+            },
+            required: ["query"]
+          }
+        },
+        
+        // ===== PLAN MANAGEMENT TOOLS =====
         {
           name: "list_plans",
-          description: "List all plans that the user has access to",
+          description: "List all plans or filter by status",
           inputSchema: {
             type: "object",
             properties: {
@@ -30,42 +118,6 @@ function setupTools(server) {
             }
           }
         },
-        // Find plans tool
-        {
-          name: "find_plans",
-          description: "Find plans by title or description",
-          inputSchema: {
-            type: "object",
-            properties: {
-              query: { 
-                type: "string", 
-                description: "Search query to find in plan title or description"
-              },
-              status: { 
-                type: "string", 
-                description: "Optional filter by plan status",
-                enum: ["draft", "active", "completed", "archived"]
-              }
-            },
-            required: ["query"]
-          }
-        },
-        // Get plan by name tool
-        {
-          name: "get_plan_by_name",
-          description: "Get a specific plan by its name/title or a close match",
-          inputSchema: {
-            type: "object",
-            properties: {
-              name: { 
-                type: "string", 
-                description: "Plan name/title to search for"
-              }
-            },
-            required: ["name"]
-          }
-        },
-        // Plan management tools
         {
           name: "create_plan",
           description: "Create a new plan",
@@ -102,8 +154,19 @@ function setupTools(server) {
             required: ["plan_id"]
           }
         },
+        {
+          name: "delete_plan",
+          description: "Delete a plan",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID to delete" }
+            },
+            required: ["plan_id"]
+          }
+        },
         
-        // Node management tools
+        // ===== NODE MANAGEMENT TOOLS =====
         {
           name: "create_node",
           description: "Create a new node in a plan",
@@ -111,11 +174,11 @@ function setupTools(server) {
             type: "object",
             properties: {
               plan_id: { type: "string", description: "Plan ID" },
-              parent_id: { type: "string", description: "Parent node ID (optional for root nodes)" },
+              parent_id: { type: "string", description: "Parent node ID (optional, defaults to root)" },
               node_type: { 
                 type: "string", 
                 description: "Node type",
-                enum: ["root", "phase", "task", "milestone"]
+                enum: ["phase", "task", "milestone"]
               },
               title: { type: "string", description: "Node title" },
               description: { type: "string", description: "Node description" },
@@ -127,52 +190,92 @@ function setupTools(server) {
               },
               context: { type: "string", description: "Additional context for the node" },
               agent_instructions: { type: "string", description: "Instructions for AI agents working on this node" },
-              acceptance_criteria: { type: "string", description: "Criteria for node completion" }
+              acceptance_criteria: { type: "string", description: "Criteria for node completion" },
+              due_date: { type: "string", description: "Due date (ISO format)" },
+              metadata: { type: "object", description: "Additional metadata" }
             },
             required: ["plan_id", "node_type", "title"]
           }
         },
         {
-          name: "update_node_status",
-          description: "Update the status of a node",
+          name: "update_node",
+          description: "Update a node's properties",
           inputSchema: {
             type: "object",
             properties: {
               plan_id: { type: "string", description: "Plan ID" },
               node_id: { type: "string", description: "Node ID" },
+              title: { type: "string", description: "New node title" },
+              description: { type: "string", description: "New node description" },
               status: { 
                 type: "string", 
                 description: "New node status",
                 enum: ["not_started", "in_progress", "completed", "blocked"]
-              }
+              },
+              context: { type: "string", description: "New context" },
+              agent_instructions: { type: "string", description: "New agent instructions" },
+              acceptance_criteria: { type: "string", description: "New acceptance criteria" },
+              due_date: { type: "string", description: "New due date (ISO format)" },
+              metadata: { type: "object", description: "New metadata" }
             },
-            required: ["plan_id", "node_id", "status"]
+            required: ["plan_id", "node_id"]
           }
         },
-        
-        // Comment and log tools
         {
-          name: "add_comment",
-          description: "Add a comment to a node",
+          name: "delete_node",
+          description: "Delete a node and all its children",
           inputSchema: {
             type: "object",
             properties: {
               plan_id: { type: "string", description: "Plan ID" },
-              node_id: { type: "string", description: "Node ID" },
-              content: { type: "string", description: "Comment content" },
-              comment_type: { 
-                type: "string", 
-                description: "Type of comment",
-                enum: ["human", "agent", "system"],
-                default: "agent"
-              }
+              node_id: { type: "string", description: "Node ID to delete" }
             },
-            required: ["plan_id", "node_id", "content"]
+            required: ["plan_id", "node_id"]
           }
         },
         {
-          name: "add_log_entry",
-          description: "Add a log entry to a node",
+          name: "move_node",
+          description: "Move a node to a different parent or position",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              node_id: { type: "string", description: "Node ID to move" },
+              parent_id: { type: "string", description: "New parent node ID" },
+              order_index: { type: "integer", description: "New position index" }
+            },
+            required: ["plan_id", "node_id"]
+          }
+        },
+        {
+          name: "get_node_context",
+          description: "Get comprehensive context for a node including children, logs, and artifacts",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              node_id: { type: "string", description: "Node ID" }
+            },
+            required: ["plan_id", "node_id"]
+          }
+        },
+        {
+          name: "get_node_ancestry",
+          description: "Get the path from root to a specific node",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              node_id: { type: "string", description: "Node ID" }
+            },
+            required: ["plan_id", "node_id"]
+          }
+        },
+        
+        // ===== LOGGING TOOLS (Replaces Comments) =====
+        {
+          name: "add_log",
+          description: "Add a log entry to a node (replaces comments)",
           inputSchema: {
             type: "object",
             properties: {
@@ -182,8 +285,8 @@ function setupTools(server) {
               log_type: { 
                 type: "string", 
                 description: "Type of log entry",
-                enum: ["progress", "reasoning", "challenge", "decision"],
-                default: "reasoning"
+                enum: ["progress", "reasoning", "challenge", "decision", "comment"],
+                default: "comment"
               },
               tags: { 
                 type: "array", 
@@ -191,87 +294,129 @@ function setupTools(server) {
                 items: { type: "string" }
               }
             },
-            required: ["plan_id", "node_id", "content", "log_type"]
+            required: ["plan_id", "node_id", "content"]
           }
         },
-        
-        // Artifact tools
         {
-          name: "add_artifact",
-          description: "Add an artifact to a node",
+          name: "get_logs",
+          description: "Get log entries for a node",
           inputSchema: {
             type: "object",
             properties: {
               plan_id: { type: "string", description: "Plan ID" },
               node_id: { type: "string", description: "Node ID" },
-              name: { type: "string", description: "Artifact name" },
-              content_type: { type: "string", description: "Content MIME type (e.g., text/markdown)" },
-              url: { type: "string", description: "URL where the artifact can be accessed" },
-              metadata: { 
-                type: "object", 
-                description: "Additional metadata for the artifact"
+              log_type: { 
+                type: "string", 
+                description: "Filter by log type",
+                enum: ["progress", "reasoning", "challenge", "decision", "comment"]
+              },
+              limit: {
+                type: "integer",
+                description: "Maximum number of logs to return",
+                default: 50
               }
             },
-            required: ["plan_id", "node_id", "name", "content_type", "url"]
-          }
-        },
-        {
-          name: "get_artifact",
-          description: "Get a specific artifact by ID",
-          inputSchema: {
-            type: "object",
-            properties: {
-              plan_id: { type: "string", description: "Plan ID" },
-              node_id: { type: "string", description: "Node ID" },
-              artifact_id: { type: "string", description: "Artifact ID" }
-            },
-            required: ["plan_id", "node_id", "artifact_id"]
-          }
-        },
-        {
-          name: "get_artifact_by_name",
-          description: "Get an artifact by name (searches for exact or close matches)",
-          inputSchema: {
-            type: "object",
-            properties: {
-              plan_id: { type: "string", description: "Plan ID" },
-              node_id: { type: "string", description: "Node ID" },
-              name: { type: "string", description: "Artifact name to search for" }
-            },
-            required: ["plan_id", "node_id", "name"]
+            required: ["plan_id", "node_id"]
           }
         },
         
-        
-        // Search tool
+        // ===== ARTIFACT MANAGEMENT =====
         {
-          name: "search_plan",
-          description: "Search within a plan",
+          name: "manage_artifact",
+          description: "Add, get, or search for artifacts",
+          inputSchema: {
+            type: "object",
+            properties: {
+              action: {
+                type: "string",
+                description: "Action to perform",
+                enum: ["add", "get", "search", "list"]
+              },
+              plan_id: { type: "string", description: "Plan ID" },
+              node_id: { type: "string", description: "Node ID" },
+              artifact_id: { type: "string", description: "Artifact ID (for 'get' action)" },
+              name: { type: "string", description: "Artifact name (for 'add' or 'search')" },
+              content_type: { type: "string", description: "Content MIME type (for 'add')" },
+              url: { type: "string", description: "URL where artifact can be accessed (for 'add')" },
+              metadata: { type: "object", description: "Additional metadata (for 'add')" }
+            },
+            required: ["action", "plan_id", "node_id"]
+          }
+        },
+        
+        // ===== BATCH OPERATIONS =====
+        {
+          name: "batch_update_nodes",
+          description: "Update multiple nodes at once",
           inputSchema: {
             type: "object",
             properties: {
               plan_id: { type: "string", description: "Plan ID" },
-              query: { type: "string", description: "Search query" }
+              updates: {
+                type: "array",
+                description: "List of node updates",
+                items: {
+                  type: "object",
+                  properties: {
+                    node_id: { type: "string", description: "Node ID" },
+                    status: { 
+                      type: "string",
+                      enum: ["not_started", "in_progress", "completed", "blocked"]
+                    },
+                    title: { type: "string" },
+                    description: { type: "string" }
+                  },
+                  required: ["node_id"]
+                }
+              }
             },
-            required: ["plan_id", "query"]
+            required: ["plan_id", "updates"]
           }
         },
-        // Get plan nodes hierarchy
         {
-          name: "get_plan_nodes",
-          description: "Get the complete hierarchical structure of all nodes in a plan",
+          name: "batch_get_artifacts",
+          description: "Get multiple artifacts at once",
           inputSchema: {
             type: "object",
             properties: {
-              plan_id: { type: "string", description: "Plan ID" }
+              plan_id: { type: "string", description: "Plan ID" },
+              artifact_requests: {
+                type: "array",
+                description: "List of artifact requests",
+                items: {
+                  type: "object",
+                  properties: {
+                    node_id: { type: "string", description: "Node ID" },
+                    artifact_id: { type: "string", description: "Artifact ID" }
+                  },
+                  required: ["node_id", "artifact_id"]
+                }
+              }
+            },
+            required: ["plan_id", "artifact_requests"]
+          }
+        },
+        
+        // ===== PLAN STRUCTURE & SUMMARY =====
+        {
+          name: "get_plan_structure",
+          description: "Get the complete hierarchical structure of a plan",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              include_details: { 
+                type: "boolean", 
+                description: "Include full node details",
+                default: false
+              }
             },
             required: ["plan_id"]
           }
         },
-        // Summarize plan tool
         {
-          name: "summarize_plan",
-          description: "Generate a comprehensive summary of a plan with visualization",
+          name: "get_plan_summary",
+          description: "Get a comprehensive summary with statistics",
           inputSchema: {
             type: "object",
             properties: {
@@ -287,932 +432,385 @@ function setupTools(server) {
   // Handler for calling tools
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    console.error(`Calling tool: ${name} with arguments:`, args);
+    
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.error(`Calling tool: ${name} with arguments:`, args);
+    }
     
     try {
-      let result;
-      
-      // Plan management tools
-      if (name === "create_plan") {
-        result = await apiClient.plans.createPlan(args);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Successfully created plan "${result.title}" with ID: ${result.id}`
+      // ===== UNIFIED SEARCH TOOL =====
+      if (name === "search") {
+        const { scope, scope_id, query, filters = {} } = args;
+        
+        let results = [];
+        
+        switch (scope) {
+          case "global":
+            // Global search across all plans
+            const searchWrapper = require('./tools/search-wrapper');
+            results = await searchWrapper.globalSearch(query);
+            break;
+            
+          case "plans":
+            // Search only in plan titles/descriptions
+            const plans = await apiClient.plans.getPlans();
+            
+            // Handle wildcard queries
+            if (query === '*' || query === '' || !query) {
+              // Return all plans (with optional status filter)
+              results = plans.filter(plan => 
+                !filters.status || plan.status === filters.status
+              );
+            } else {
+              // Normal search
+              const queryLower = query.toLowerCase();
+              results = plans.filter(plan => {
+                const titleMatch = plan.title.toLowerCase().includes(queryLower);
+                const descMatch = plan.description?.toLowerCase().includes(queryLower);
+                const statusMatch = !filters.status || plan.status === filters.status;
+                return (titleMatch || descMatch) && statusMatch;
+              });
             }
-          ]
-        };
+            break;
+            
+          case "plan":
+            // Search within a specific plan
+            if (!scope_id) {
+              throw new Error("scope_id (plan_id) is required when scope is 'plan'");
+            }
+            const searchWrapperPlan = require('./tools/search-wrapper');
+            results = await searchWrapperPlan.searchPlan(scope_id, query);
+            break;
+            
+          case "node":
+            // Search within a specific node's children
+            if (!scope_id) {
+              throw new Error("scope_id (node_id) is required when scope is 'node'");
+            }
+            // This would need a specific implementation
+            results = [];
+            break;
+            
+          default:
+            // Default to global search
+            const searchWrapperDefault = require('./tools/search-wrapper');
+            results = await searchWrapperDefault.globalSearch(query);
+        }
+        
+        // Apply filters
+        if (filters.type) {
+          results = results.filter(item => item.type === filters.type);
+        }
+        if (filters.limit) {
+          results = results.slice(0, filters.limit);
+        }
+        
+        return formatResponse({
+          query,
+          scope,
+          scope_id,
+          filters,
+          count: results.length,
+          results
+        });
+      }
+      
+      // ===== PLAN MANAGEMENT =====
+      if (name === "list_plans") {
+        const { status } = args;
+        const plans = await apiClient.plans.getPlans();
+        const filteredPlans = status ? plans.filter(p => p.status === status) : plans;
+        return formatResponse(filteredPlans);
+      }
+      
+      if (name === "create_plan") {
+        const result = await apiClient.plans.createPlan(args);
+        return formatResponse(result);
       }
       
       if (name === "update_plan") {
         const { plan_id, ...planData } = args;
-        result = await apiClient.plans.updatePlan(plan_id, planData);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Successfully updated plan "${result.title}" (ID: ${result.id})`
-            }
-          ]
-        };
+        const result = await apiClient.plans.updatePlan(plan_id, planData);
+        return formatResponse(result);
       }
       
-      // Node management tools
+      if (name === "delete_plan") {
+        const { plan_id } = args;
+        await apiClient.plans.deletePlan(plan_id);
+        return formatResponse({
+          success: true,
+          message: `Plan ${plan_id} deleted successfully`
+        });
+      }
+      
+      // ===== NODE MANAGEMENT =====
       if (name === "create_node") {
         const { plan_id, ...nodeData } = args;
-        result = await apiClient.nodes.createNode(plan_id, nodeData);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Successfully created ${result.node_type} node "${result.title}" with ID: ${result.id}`
-            }
-          ]
-        };
+        const result = await apiClient.nodes.createNode(plan_id, nodeData);
+        return formatResponse(result);
       }
       
-      if (name === "update_node_status") {
-        const { plan_id, node_id, status } = args;
-        result = await apiClient.nodes.updateNodeStatus(plan_id, node_id, status);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Successfully updated status of node "${result.title}" to "${status}"`
-            }
-          ]
-        };
+      if (name === "update_node") {
+        const { plan_id, node_id, ...nodeData } = args;
+        const result = await apiClient.nodes.updateNode(plan_id, node_id, nodeData);
+        return formatResponse(result);
       }
       
-      // Comment and log tools
-      if (name === "add_comment") {
-        const { plan_id, node_id, ...commentData } = args;
-        result = await apiClient.comments.addComment(plan_id, node_id, commentData);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Successfully added comment to node`
-            }
-          ]
-        };
+      if (name === "delete_node") {
+        const { plan_id, node_id } = args;
+        await apiClient.nodes.deleteNode(plan_id, node_id);
+        return formatResponse({
+          success: true,
+          message: `Node ${node_id} and its children deleted successfully`
+        });
       }
       
-      if (name === "add_log_entry") {
-        const { plan_id, node_id, ...logData } = args;
-        result = await apiClient.logs.addLogEntry(plan_id, node_id, logData);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Successfully added ${logData.log_type} log entry to node`
-            }
-          ]
-        };
-      }
-      
-      // Artifact tools
-      if (name === "add_artifact") {
-        const { plan_id, node_id, ...artifactData } = args;
-        result = await apiClient.artifacts.addArtifact(plan_id, node_id, artifactData);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Successfully added artifact "${artifactData.name}" to node`
-            }
-          ]
-        };
-      }
-      
-      // Get artifact by ID
-      if (name === "get_artifact") {
-        const { plan_id, node_id, artifact_id } = args;
+      if (name === "move_node") {
+        const { plan_id, node_id, parent_id, order_index } = args;
         
         try {
-          // Get the artifact details
-          const artifact = await apiClient.artifacts.getArtifact(plan_id, node_id, artifact_id);
-          
-          // Get the artifact content
-          const content = await apiClient.artifacts.getArtifactContent(plan_id, node_id, artifact_id);
-          
-          // Format the result based on content type
-          let resultText = `# Artifact: ${artifact.name}\n\n`;
-          resultText += `**ID:** \`${artifact.id}\`\n\n`;
-          resultText += `**Content Type:** ${artifact.content_type}\n\n`;
-          resultText += `**Created:** ${new Date(artifact.created_at).toLocaleString()}\n\n`;
-          
-          if (artifact.metadata && Object.keys(artifact.metadata).length > 0) {
-            resultText += `## Metadata\n\n`;
-            resultText += `\`\`\`json\n${JSON.stringify(artifact.metadata, null, 2)}\n\`\`\`\n\n`;
-          }
-          
-          resultText += `## Content\n\n`;
-          
-          // Handle content based on its type
-          if (artifact.content_type && artifact.content_type.includes('json')) {
-            try {
-              // Pretty-print JSON
-              const jsonContent = typeof content === 'string' ? JSON.parse(content) : content;
-              resultText += `\`\`\`json\n${JSON.stringify(jsonContent, null, 2)}\n\`\`\`\n`;
-            } catch (e) {
-              resultText += `\`\`\`\n${content}\n\`\`\`\n`;
+          // Call the move endpoint - using POST as per API definition
+          const response = await apiClient.axiosInstance.post(
+            `/plans/${plan_id}/nodes/${node_id}/move`,
+            { 
+              parent_id: parent_id || null,
+              order_index: order_index !== undefined ? order_index : null
             }
-          } else if (artifact.content_type && (
-              artifact.content_type.includes('javascript') || 
-              artifact.content_type.includes('typescript') ||
-              artifact.content_type.includes('python') ||
-              artifact.content_type.includes('java') ||
-              artifact.content_type.includes('c++') ||
-              artifact.content_type.includes('csharp') ||
-              artifact.content_type.includes('go') ||
-              artifact.content_type.includes('rust')
-          )) {
-            // Code content
-            resultText += `\`\`\`\n${content}\n\`\`\`\n`;
-          } else if (artifact.content_type && artifact.content_type.includes('markdown')) {
-            // Markdown content (include directly)
-            resultText += `${content}\n`;
-          } else {
-            // Default handling for other content types
-            resultText += `\`\`\`\n${content}\n\`\`\`\n`;
-          }
-          
-          return {
-            content: [
-              {
-                type: "text",
-                text: resultText
-              }
-            ]
-          };
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Error retrieving artifact: ${error.message}`
-              }
-            ]
-          };
-        }
-      }
-      
-      // Get artifact by name
-      if (name === "get_artifact_by_name") {
-        const { plan_id, node_id, name: artifactName } = args;
-        
-        try {
-          // Get all artifacts for the node
-          const artifacts = await apiClient.artifacts.getArtifacts(plan_id, node_id);
-          
-          // First try exact match
-          let matchedArtifact = artifacts.find(artifact => 
-            artifact.name.toLowerCase() === artifactName.toLowerCase()
           );
           
-          // If no exact match, try fuzzy match
-          if (!matchedArtifact) {
-            const nameLower = artifactName.toLowerCase();
-            const possibleMatches = artifacts.filter(artifact => 
-              artifact.name.toLowerCase().includes(nameLower) || 
-              nameLower.includes(artifact.name.toLowerCase())
-            );
-            
-            // Sort by closest match
-            possibleMatches.sort((a, b) => {
-              const aName = a.name.toLowerCase();
-              const bName = b.name.toLowerCase();
-              
-              const aContains = aName.includes(nameLower);
-              const bContains = bName.includes(nameLower);
-              const nameContainsA = nameLower.includes(aName);
-              const nameContainsB = nameLower.includes(bName);
-              
-              // Prioritize artifacts that contain the search term
-              if (aContains && !bContains) return -1;
-              if (!aContains && bContains) return 1;
-              
-              // If both contain the search term, prioritize shorter names
-              if (aContains && bContains) {
-                return a.name.length - b.name.length;
-              }
-              
-              // If search term contains both names, prioritize longer names
-              if (nameContainsA && nameContainsB) {
-                return b.name.length - a.name.length;
-              }
-              
-              return 0;
-            });
-            
-            matchedArtifact = possibleMatches[0];
-          }
-          
-          if (!matchedArtifact) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `No artifact found matching "${artifactName}" in node ${node_id}.`
-                }
-              ]
-            };
-          }
-          
-          // Use the get_artifact functionality directly instead of calling the tool
-          // Get the artifact details
-          const artifact = await apiClient.artifacts.getArtifact(plan_id, node_id, matchedArtifact.id);
-          
-          // Get the artifact content
-          const content = await apiClient.artifacts.getArtifactContent(plan_id, node_id, matchedArtifact.id);
-          
-          // Format the result based on content type
-          let resultText = `# Artifact: ${artifact.name}\n\n`;
-          resultText += `**ID:** \`${artifact.id}\`\n\n`;
-          resultText += `**Content Type:** ${artifact.content_type}\n\n`;
-          resultText += `**Created:** ${new Date(artifact.created_at).toLocaleString()}\n\n`;
-          
-          if (artifact.metadata && Object.keys(artifact.metadata).length > 0) {
-            resultText += `## Metadata\n\n`;
-            resultText += `\`\`\`json\n${JSON.stringify(artifact.metadata, null, 2)}\n\`\`\`\n\n`;
-          }
-          
-          resultText += `## Content\n\n`;
-          
-          // Handle content based on its type
-          if (artifact.content_type && artifact.content_type.includes('json')) {
-            try {
-              // Pretty-print JSON
-              const jsonContent = typeof content === 'string' ? JSON.parse(content) : content;
-              resultText += `\`\`\`json\n${JSON.stringify(jsonContent, null, 2)}\n\`\`\`\n`;
-            } catch (e) {
-              resultText += `\`\`\`\n${content}\n\`\`\`\n`;
-            }
-          } else if (artifact.content_type && (
-              artifact.content_type.includes('javascript') || 
-              artifact.content_type.includes('typescript') ||
-              artifact.content_type.includes('python') ||
-              artifact.content_type.includes('java') ||
-              artifact.content_type.includes('c++') ||
-              artifact.content_type.includes('csharp') ||
-              artifact.content_type.includes('go') ||
-              artifact.content_type.includes('rust')
-          )) {
-            // Code content
-            resultText += `\`\`\`\n${content}\n\`\`\`\n`;
-          } else if (artifact.content_type && artifact.content_type.includes('markdown')) {
-            // Markdown content (include directly)
-            resultText += `${content}\n`;
-          } else {
-            // Default handling for other content types
-            resultText += `\`\`\`\n${content}\n\`\`\`\n`;
-          }
-          
-          return {
-            content: [
-              {
-                type: "text",
-                text: resultText
-              }
-            ]
-          };
+          return formatResponse(response.data);
         } catch (error) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Error searching for artifact: ${error.message}`
-              }
-            ]
-          };
+          // If endpoint still doesn't work, try updating the node directly
+          if (error.response && error.response.status === 404) {
+            console.error('Move endpoint not found, trying direct update');
+            // Fallback to updating the node's parent_id via regular update
+            const updateResponse = await apiClient.nodes.updateNode(plan_id, node_id, {
+              parent_id: parent_id || null,
+              order_index: order_index !== undefined ? order_index : null
+            });
+            return formatResponse(updateResponse);
+          }
+          throw error;
         }
       }
       
-      // Search tool
-      if (name === "search_plan") {
-        const { plan_id, query } = args;
+      if (name === "get_node_context") {
+        const { plan_id, node_id } = args;
         
-        // Use the search wrapper which properly handles the API response format
-        // and returns just the results array
-        const searchWrapper = require('./tools/search-wrapper');
-        const searchResults = await searchWrapper.searchPlan(plan_id, query);
-        
-        let resultText = `# Search Results for "${query}"\n\n`;
-        if (!searchResults || searchResults.length === 0) {
-          resultText += "No results found.\n";
-        } else {
-          resultText += `Found ${searchResults.length} results:\n\n`;
-          
-          searchResults.forEach((item, index) => {
-            resultText += `## Result ${index + 1}: ${item.title || 'Untitled'} (${item.type || 'Unknown'})\n\n`;
-            if (item.content) {
-              resultText += `${item.content.substring(0, 200)}${item.content.length > 200 ? '...' : ''}\n\n`;
-            }
-            resultText += `**ID:** \`${item.id}\`\n\n`;
-            resultText += `---\n\n`;
-          });
-        }
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: resultText
-            }
-          ]
-        };
-      }
-      
-      // Get plan by name tool
-      if (name === "get_plan_by_name") {
-        const { name: planName } = args;
-        const plans = await apiClient.plans.getPlans();
-        
-        // First try to find an exact match
-        let matchedPlan = plans.find(plan => 
-          plan.title.toLowerCase() === planName.toLowerCase()
+        // Get node with context
+        const response = await apiClient.axiosInstance.get(
+          `/plans/${plan_id}/nodes/${node_id}/context`
         );
         
-        // If no exact match, try a fuzzy match
-        if (!matchedPlan) {
-          const nameLower = planName.toLowerCase();
-          const possibleMatches = plans.filter(plan => 
-            plan.title.toLowerCase().includes(nameLower) || 
-            nameLower.includes(plan.title.toLowerCase())
-          );
-          
-          // Sort by closest match (shortest title that contains search term or vice versa)
-          possibleMatches.sort((a, b) => {
-            const aTitle = a.title.toLowerCase();
-            const bTitle = b.title.toLowerCase();
-            
-            const aContains = aTitle.includes(nameLower);
-            const bContains = bTitle.includes(nameLower);
-            const nameContainsA = nameLower.includes(aTitle);
-            const nameContainsB = nameLower.includes(bTitle);
-            
-            // Prioritize titles that contain the search term
-            if (aContains && !bContains) return -1;
-            if (!aContains && bContains) return 1;
-            
-            // If both contain the search term, prioritize shorter titles
-            if (aContains && bContains) {
-              return a.title.length - b.title.length;
-            }
-            
-            // If search term contains both titles, prioritize longer titles
-            if (nameContainsA && nameContainsB) {
-              return b.title.length - a.title.length;
-            }
-            
-            return 0;
-          });
-          
-          matchedPlan = possibleMatches[0];
+        return formatResponse(response.data);
+      }
+      
+      if (name === "get_node_ancestry") {
+        const { plan_id, node_id } = args;
+        
+        // Get node ancestry
+        const response = await apiClient.axiosInstance.get(
+          `/plans/${plan_id}/nodes/${node_id}/ancestry`
+        );
+        
+        return formatResponse(response.data);
+      }
+      
+      // ===== LOGGING =====
+      if (name === "add_log") {
+        const { plan_id, node_id, content, log_type = "comment", tags } = args;
+        
+        const logData = {
+          content,
+          log_type,
+          tags
+        };
+        
+        const result = await apiClient.logs.addLogEntry(plan_id, node_id, logData);
+        return formatResponse(result);
+      }
+      
+      if (name === "get_logs") {
+        const { plan_id, node_id, log_type, limit = 50 } = args;
+        
+        let logs = await apiClient.logs.getLogs(plan_id, node_id);
+        
+        // Apply filters
+        if (log_type) {
+          logs = logs.filter(log => log.log_type === log_type);
         }
         
-        if (!matchedPlan) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `No plan found matching "${planName}". Try using the find_plans tool with a different search term.`
-              }
-            ]
-          };
-        }
+        // Apply limit
+        logs = logs.slice(0, limit);
         
-        // Get all data for this plan
-        const plan = await apiClient.plans.getPlan(matchedPlan.id);
-        const nodes = await apiClient.nodes.getNodes(plan.id);
+        return formatResponse(logs);
+      }
+      
+      // ===== ARTIFACT MANAGEMENT =====
+      if (name === "manage_artifact") {
+        const { action, plan_id, node_id, ...params } = args;
         
-        // Format the plan data
-        let resultText = `# Plan: ${plan.title}\n\n`;
-        resultText += `**ID:** \`${plan.id}\`\n\n`;
-        resultText += `**Status:** ${plan.status}\n\n`;
-        
-        if (plan.description) {
-          resultText += `## Description\n\n${plan.description}\n\n`;
-        }
-        
-        resultText += `**Created:** ${new Date(plan.created_at).toLocaleString()}\n\n`;
-        resultText += `**Updated:** ${new Date(plan.updated_at).toLocaleString()}\n\n`;
-        
-        // Add plan structure
-        resultText += `## Plan Structure\n\n`;
-        
-        if (nodes.length === 0) {
-          resultText += "No nodes found in this plan.\n\n";
-        } else {
-          // Create a map of nodes by ID
-          const nodeMap = new Map();
-          nodes.forEach(node => {
-            nodeMap.set(node.id, {
-              ...node,
-              children: []
+        switch (action) {
+          case "add":
+            const { name, content_type, url, metadata } = params;
+            const newArtifact = await apiClient.artifacts.addArtifact(plan_id, node_id, {
+              name,
+              content_type,
+              url,
+              metadata
             });
-          });
-          
-          // Build the tree structure
-          const rootNodes = [];
-          nodeMap.forEach(node => {
-            if (node.parent_id) {
-              const parent = nodeMap.get(node.parent_id);
-              if (parent) {
-                parent.children.push(node);
-              } else {
-                rootNodes.push(node);
-              }
-            } else {
-              rootNodes.push(node);
-            }
-          });
-          
-          // Sort nodes
-          rootNodes.sort((a, b) => a.order_index - b.order_index);
-          nodeMap.forEach(node => {
-            node.children.sort((a, b) => a.order_index - b.order_index);
-          });
-          
-          // Generate text
-          function renderNode(node, depth = 0) {
-            const indent = "  ".repeat(depth);
-            const statusEmoji = getStatusEmoji(node.status);
+            return formatResponse(newArtifact);
             
-            resultText += `${indent}- [${statusEmoji}] **${node.title}** (${node.node_type}) - ID: \`${node.id}\`\n`;
+          case "get":
+            const { artifact_id } = params;
+            const artifact = await apiClient.artifacts.getArtifact(plan_id, node_id, artifact_id);
+            const content = await apiClient.artifacts.getArtifactContent(plan_id, node_id, artifact_id);
+            return formatResponse({
+              ...artifact,
+              content
+            });
             
-            if (node.children && node.children.length > 0) {
-              node.children.forEach(child => {
-                renderNode(child, depth + 1);
-              });
-            }
-          }
-          
-          rootNodes.forEach(root => {
-            renderNode(root);
-          });
-        }
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: resultText
-            }
-          ]
-        };
-      }
-      
-      // Find plans tool
-      if (name === "find_plans") {
-        const { query, status } = args;
-        const plans = await apiClient.plans.getPlans();
-        
-        // Filter by query and status if provided
-        const queryTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
-        
-        // First, try exact matching
-        let filteredPlans = plans.filter(plan => {
-          const titleLower = plan.title.toLowerCase();
-          const descLower = plan.description ? plan.description.toLowerCase() : '';
-          
-          // Check if the whole query is contained in title or description
-          const exactMatch = titleLower.includes(query.toLowerCase()) || 
-                            descLower.includes(query.toLowerCase());
-          
-          const matchesStatus = status ? plan.status === status : true;
-          
-          return exactMatch && matchesStatus;
-        });
-        
-        // If no exact matches, try matching individual terms
-        if (filteredPlans.length === 0) {
-          filteredPlans = plans.filter(plan => {
-            const titleLower = plan.title.toLowerCase();
-            const descLower = plan.description ? plan.description.toLowerCase() : '';
-            
-            // Check if all terms are found in title or description
-            const allTermsMatch = queryTerms.every(term => 
-              titleLower.includes(term) || descLower.includes(term)
+          case "search":
+            const { name: searchName } = params;
+            const artifacts = await apiClient.artifacts.getArtifacts(plan_id, node_id);
+            const searchLower = searchName.toLowerCase();
+            const matches = artifacts.filter(a => 
+              a.name.toLowerCase().includes(searchLower)
             );
+            return formatResponse(matches);
             
-            // Check if the majority of terms are found
-            const someTermsMatch = queryTerms.filter(term => 
-              titleLower.includes(term) || descLower.includes(term)
-            ).length > queryTerms.length / 2;
+          case "list":
+            const allArtifacts = await apiClient.artifacts.getArtifacts(plan_id, node_id);
+            return formatResponse(allArtifacts);
             
-            const matchesStatus = status ? plan.status === status : true;
-            
-            return (allTermsMatch || someTermsMatch) && matchesStatus;
-          });
+          default:
+            throw new Error(`Unknown artifact action: ${action}`);
         }
-        
-        if (filteredPlans.length === 0) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `No plans found matching "${query}"${status ? ` with status "${status}"` : ''}`
-              }
-            ]
-          };
-        }
-        
-        let resultText = `# Plans Matching "${query}"${status ? ` (Status: ${status})` : ''}\n\n`;
-        
-        filteredPlans.forEach((plan, index) => {
-          resultText += `## ${index + 1}. ${plan.title}\n\n`;
-          resultText += `**ID:** \`${plan.id}\`\n\n`;
-          resultText += `**Status:** ${plan.status}\n\n`;
-          if (plan.description) {
-            resultText += `**Description:** ${plan.description}\n\n`;
-          }
-          resultText += `**Created:** ${new Date(plan.created_at).toLocaleString()}\n\n`;
-          resultText += `---\n\n`;
-        });
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: resultText
-            }
-          ]
-        };
       }
       
-      // List plans tool
-      if (name === "list_plans") {
-        const { status } = args;
-        const plans = await apiClient.plans.getPlans();
+      // ===== BATCH OPERATIONS =====
+      if (name === "batch_update_nodes") {
+        const { plan_id, updates } = args;
         
-        // Filter by status if provided
-        const filteredPlans = status ? plans.filter(plan => plan.status === status) : plans;
+        const results = [];
+        const errors = [];
         
-        if (filteredPlans.length === 0) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: status ? `No plans found with status "${status}"` : "No plans found"
-              }
-            ]
-          };
+        for (const update of updates) {
+          const { node_id, ...updateData } = update;
+          try {
+            const result = await apiClient.nodes.updateNode(plan_id, node_id, updateData);
+            results.push({ node_id, success: true, data: result });
+          } catch (error) {
+            errors.push({ node_id, success: false, error: error.message });
+          }
         }
         
-        let resultText = `# Available Plans${status ? ` (Status: ${status})` : ''}\n\n`;
-        
-        filteredPlans.forEach((plan, index) => {
-          resultText += `## ${index + 1}. ${plan.title}\n\n`;
-          resultText += `**ID:** \`${plan.id}\`\n\n`;
-          resultText += `**Status:** ${plan.status}\n\n`;
-          if (plan.description) {
-            resultText += `**Description:** ${plan.description}\n\n`;
-          }
-          resultText += `**Created:** ${new Date(plan.created_at).toLocaleString()}\n\n`;
-          resultText += `---\n\n`;
+        return formatResponse({
+          total: updates.length,
+          successful: results.length,
+          failed: errors.length,
+          results,
+          errors
         });
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: resultText
-            }
-          ]
-        };
       }
       
-      // Get plan nodes hierarchy tool
-      if (name === "get_plan_nodes") {
-        const { plan_id } = args;
+      if (name === "batch_get_artifacts") {
+        const { plan_id, artifact_requests } = args;
         
-        // Get plan details first
+        const results = [];
+        const errors = [];
+        
+        for (const request of artifact_requests) {
+          const { node_id, artifact_id } = request;
+          try {
+            const artifact = await apiClient.artifacts.getArtifact(plan_id, node_id, artifact_id);
+            const content = await apiClient.artifacts.getArtifactContent(plan_id, node_id, artifact_id);
+            results.push({
+              node_id,
+              artifact_id,
+              success: true,
+              data: { ...artifact, content }
+            });
+          } catch (error) {
+            errors.push({
+              node_id,
+              artifact_id,
+              success: false,
+              error: error.message
+            });
+          }
+        }
+        
+        return formatResponse({
+          total: artifact_requests.length,
+          successful: results.length,
+          failed: errors.length,
+          results,
+          errors
+        });
+      }
+      
+      // ===== PLAN STRUCTURE & SUMMARY =====
+      if (name === "get_plan_structure") {
+        const { plan_id, include_details = false } = args;
+        
         const plan = await apiClient.plans.getPlan(plan_id);
-        
-        // Get the full node hierarchy
         const nodes = await apiClient.nodes.getNodes(plan_id);
         
-        // Format the response
-        let resultText = `# Plan Structure: ${plan.title}\n\n`;
-        resultText += `**Plan ID:** \`${plan.id}\`\n\n`;
-        resultText += `**Status:** ${plan.status}\n\n`;
-        
-        if (plan.description) {
-          resultText += `## Description\n\n${plan.description}\n\n`;
-        }
-        
-        // Count nodes by status
-        const statusCounts = {
-          not_started: 0,
-          in_progress: 0,
-          completed: 0,
-          blocked: 0
-        };
-        
-        // Function to count nodes recursively
-        const countNodes = (nodeArray) => {
-          nodeArray.forEach(node => {
-            if (node.status) {
-              statusCounts[node.status]++;
-            }
-            if (node.children && node.children.length > 0) {
-              countNodes(node.children);
-            }
-          });
-        };
-        
-        countNodes(nodes);
-        
-        resultText += `## Statistics\n\n`;
-        resultText += `- Total nodes: ${nodes.reduce((count, node) => {
-          // Recursive function to count all nodes including children
-          const countAllNodes = (n) => {
-            let c = 1; // Count the node itself
-            if (n.children && n.children.length > 0) {
-              n.children.forEach(child => {
-                c += countAllNodes(child);
-              });
-            }
-            return c;
-          };
-          return count + countAllNodes(node);
-        }, 0)}\n`;
-        resultText += `- Not started: ${statusCounts.not_started}\n`;
-        resultText += `- In progress: ${statusCounts.in_progress}\n`;
-        resultText += `- Completed: ${statusCounts.completed}\n`;
-        resultText += `- Blocked: ${statusCounts.blocked}\n\n`;
-        
-        resultText += `## Node Hierarchy\n\n`;
-        
-        if (nodes.length === 0) {
-          resultText += "No nodes found in this plan.\n\n";
+        // The API already returns a tree structure, not a flat list
+        // If it's already hierarchical, use it directly
+        let structure;
+        if (Array.isArray(nodes) && nodes.length > 0 && nodes[0].children !== undefined) {
+          // Already hierarchical - use directly
+          structure = nodes;
         } else {
-          // Generate text representation of the hierarchy
-          function renderNode(node, depth = 0) {
-            const indent = "  ".repeat(depth);
-            const statusEmoji = getStatusEmoji(node.status);
-            
-            resultText += `${indent}- [${statusEmoji}] **${node.title}** (${node.node_type}) - ID: \`${node.id}\`\n`;
-            
-            if (node.description) {
-              resultText += `${indent}  ${node.description.split('\n')[0]}${node.description.length > 50 ? '...' : ''}\n`;
-            }
-            
-            if (node.children && node.children.length > 0) {
-              node.children.forEach(child => {
-                renderNode(child, depth + 1);
-              });
-            }
-          }
-          
-          nodes.forEach(node => {
-            renderNode(node);
-          });
+          // Flat list - build hierarchy
+          structure = buildNodeHierarchy(nodes, include_details);
         }
         
-        return {
-          content: [
-            {
-              type: "text",
-              text: resultText
-            }
-          ]
-        };
+        return formatResponse({
+          plan: {
+            id: plan.id,
+            title: plan.title,
+            status: plan.status,
+            description: plan.description
+          },
+          structure
+        });
       }
       
-      // Summarize plan tool
-      if (name === "summarize_plan") {
+      if (name === "get_plan_summary") {
         const { plan_id } = args;
         
-        // Get plan details first
         const plan = await apiClient.plans.getPlan(plan_id);
-        
-        // Get the full node hierarchy
         const nodes = await apiClient.nodes.getNodes(plan_id);
         
-        // Count nodes by type and status
-        const nodeTypeCounts = {
-          root: 0,
-          phase: 0,
-          task: 0,
-          milestone: 0
-        };
+        // Calculate statistics
+        const stats = calculatePlanStatistics(nodes);
         
-        const statusCounts = {
-          not_started: 0,
-          in_progress: 0,
-          completed: 0,
-          blocked: 0
-        };
-        
-        // Calculate total nodes recursively
-        const calculateTotalNodes = (nodeArray) => {
-          let total = 0;
-          nodeArray.forEach(node => {
-            total++;
-            if (node.children && node.children.length > 0) {
-              total += calculateTotalNodes(node.children);
-            }
-          });
-          return total;
-        };
-        
-        // Function to count nodes recursively by type and status
-        const countNodesByTypeAndStatus = (nodeArray) => {
-          nodeArray.forEach(node => {
-            // Count by node_type
-            if (node.node_type) {
-              nodeTypeCounts[node.node_type]++;
-            }
-            
-            // Count by status
-            if (node.status) {
-              statusCounts[node.status]++;
-            }
-            
-            // Process children
-            if (node.children && node.children.length > 0) {
-              countNodesByTypeAndStatus(node.children);
-            }
-          });
-        };
-        
-        countNodesByTypeAndStatus(nodes);
-        
-        // Find in-progress nodes
-        const findInProgressNodes = (nodeArray, results = []) => {
-          nodeArray.forEach(node => {
-            if (node.status === 'in_progress') {
-              results.push(node);
-            }
-            if (node.children && node.children.length > 0) {
-              findInProgressNodes(node.children, results);
-            }
-          });
-          return results;
-        };
-        
-        const inProgressNodes = findInProgressNodes(nodes);
-        
-        // Identify phases with most not-started tasks
-        const phaseTaskCounts = new Map();
-        const countTasksByPhase = (nodeArray, currentPhase = null) => {
-          nodeArray.forEach(node => {
-            let phaseForChildren = currentPhase;
-            
-            // If this is a phase, track it for its children
-            if (node.node_type === 'phase') {
-              phaseForChildren = node;
-              if (!phaseTaskCounts.has(node.id)) {
-                phaseTaskCounts.set(node.id, {
-                  phase: node,
-                  not_started: 0,
-                  in_progress: 0,
-                  completed: 0,
-                  blocked: 0,
-                  total: 0
-                });
-              }
-            }
-            
-            // If this is a task and we have a current phase, count it
-            if (node.node_type === 'task' && currentPhase) {
-              const phaseCounts = phaseTaskCounts.get(currentPhase.id);
-              phaseCounts.total++;
-              phaseCounts[node.status]++;
-            }
-            
-            // Process children with the current phase context
-            if (node.children && node.children.length > 0) {
-              countTasksByPhase(node.children, phaseForChildren);
-            }
-          });
-        };
-        
-        countTasksByPhase(nodes);
-        
-        // Convert the phase counts to array and sort by not_started count (descending)
-        const phasesWithTasks = Array.from(phaseTaskCounts.values())
-          .filter(phase => phase.total > 0)
-          .sort((a, b) => b.not_started - a.not_started);
-        
-        // Calculate progress percentage
-        const totalNodes = calculateTotalNodes(nodes);
-        const progressPercentage = totalNodes > 0 
-          ? ((statusCounts.completed / totalNodes) * 100).toFixed(1)
-          : 0;
-        
-        // Create a tree visualization
-        let visualization = '```\n';
-        visualization += `${plan.title} (root) ${getStatusEmoji(nodes[0]?.status || 'not_started')}\n`;
-        
-        // Function to build a tree visualization
-        const buildTreeVisualization = (nodeArray, prefix = '│') => {
-          // Sort nodes to show phases first, then milestones, then tasks
-          const sortedNodes = [...nodeArray].sort((a, b) => {
-            const typeOrder = { phase: 0, milestone: 1, task: 2 };
-            return (typeOrder[a.node_type] || 3) - (typeOrder[b.node_type] || 3);
-          });
-          
-          for (let i = 0; i < sortedNodes.length; i++) {
-            const node = sortedNodes[i];
-            const isLast = i === sortedNodes.length - 1;
-            
-            // Skip the root node as it's already added
-            if (node.node_type === 'root') continue;
-            
-            // Determine the connector based on whether this is the last node
-            const connector = isLast ? '└── ' : '├── ';
-            
-            // Add the node to the visualization
-            visualization += `${prefix}${connector}${node.title} ${getStatusEmoji(node.status)}\n`;
-            
-            // Recursively process children with updated prefix
-            if (node.children && node.children.length > 0) {
-              const newPrefix = isLast ? `${prefix}    ` : `${prefix}│   `;
-              buildTreeVisualization(node.children, newPrefix);
-            }
-          }
-        };
-        
-        // Implement tree visualization starting with the root's children
-        if (nodes[0] && nodes[0].children && nodes[0].children.length > 0) {
-          buildTreeVisualization(nodes[0].children);
-        }
-        
-        visualization += '\n';
-        visualization += 'Legend:\n';
-        visualization += '⚪ Not Started   🔵 In Progress   ✅ Completed   🔴 Blocked\n';
-        visualization += '```';
-        
-        // Format the summary response
-        let resultText = `# ${plan.title} - Plan Summary\n\n`;
-        
-        // Executive Summary
-        resultText += `## Executive Summary\n\n`;
-        resultText += `${plan.description}\n\n`;
-        resultText += `This plan is currently **${plan.status.toUpperCase()}** with **${progressPercentage}%** completion.\n\n`;
-        resultText += `### Quick Statistics\n\n`;
-        resultText += `- **Total components:** ${totalNodes}\n`;
-        resultText += `- **Phases:** ${nodeTypeCounts.phase}\n`;
-        resultText += `- **Tasks:** ${nodeTypeCounts.task}\n`;
-        resultText += `- **Milestones:** ${nodeTypeCounts.milestone}\n\n`;
-        resultText += `### Current Progress\n\n`;
-        resultText += `- **Not Started:** ${statusCounts.not_started} (${((statusCounts.not_started / totalNodes) * 100).toFixed(1)}%)\n`;
-        resultText += `- **In Progress:** ${statusCounts.in_progress} (${((statusCounts.in_progress / totalNodes) * 100).toFixed(1)}%)\n`;
-        resultText += `- **Completed:** ${statusCounts.completed} (${((statusCounts.completed / totalNodes) * 100).toFixed(1)}%)\n`;
-        resultText += `- **Blocked:** ${statusCounts.blocked} (${((statusCounts.blocked / totalNodes) * 100).toFixed(1)}%)\n\n`;
-        
-        // Current Focus
-        if (inProgressNodes.length > 0) {
-          resultText += `## Current Focus Areas\n\n`;
-          inProgressNodes.forEach((node, index) => {
-            resultText += `${index + 1}. **${node.title}** (${node.node_type})\n`;
-            if (node.description) {
-              resultText += `   ${node.description.split('\n')[0]}${node.description.length > 100 ? '...' : ''}\n`;
-            }
-          });
-          resultText += '\n';
-        }
-        
-        // Next Focus Areas
-        resultText += `## Upcoming Work\n\n`;
-        if (phasesWithTasks.length > 0) {
-          resultText += `### Phases With Pending Tasks\n\n`;
-          
-          // Show top 3 phases with most not-started tasks
-          phasesWithTasks.slice(0, 3).forEach((phaseData, index) => {
-            resultText += `${index + 1}. **${phaseData.phase.title}**\n`;
-            resultText += `   - Not Started: ${phaseData.not_started}\n`;
-            resultText += `   - In Progress: ${phaseData.in_progress}\n`;
-            resultText += `   - Completed: ${phaseData.completed}\n`;
-            resultText += `   - Total Tasks: ${phaseData.total}\n\n`;
-          });
-        } else {
-          resultText += `No phases with pending tasks identified.\n\n`;
-        }
-        
-        // Plan Visualization
-        resultText += `## Plan Visualization\n\n`;
-        resultText += visualization;
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: resultText
-            }
-          ]
-        };
+        return formatResponse({
+          plan: {
+            id: plan.id,
+            title: plan.title,
+            status: plan.status,
+            description: plan.description,
+            created_at: plan.created_at,
+            updated_at: plan.updated_at
+          },
+          statistics: stats,
+          progress_percentage: stats.total > 0 
+            ? ((stats.status_counts.completed / stats.total) * 100).toFixed(1)
+            : 0
+        });
       }
       
       // Tool not found
       throw new Error(`Unknown tool: ${name}`);
     } catch (error) {
-      console.error(`Error calling tool ${name}:`, error);
+      if (process.env.NODE_ENV === 'development') {
+        console.error(`Error calling tool ${name}:`, error);
+      }
       return {
         isError: true,
         content: [
@@ -1225,27 +823,173 @@ function setupTools(server) {
     }
   });
   
-  console.error('Tools setup complete');
+  if (process.env.NODE_ENV === 'development') {
+    console.error('Tools setup complete');
+  }
 }
 
 /**
- * Get emoji for node status
- * @param {string} status - Node status
- * @returns {string} - Emoji
+ * Build hierarchical node structure
  */
-function getStatusEmoji(status) {
-  switch (status) {
-    case 'not_started':
-      return '⚪';
-    case 'in_progress':
-      return '🔵';
-    case 'completed':
-      return '✅';
-    case 'blocked':
-      return '🔴';
-    default:
-      return '⚪';
+function buildNodeHierarchy(nodes, includeDetails = false) {
+  if (!nodes || nodes.length === 0) {
+    return [];
   }
+  
+  // Debug logging to understand the structure
+  if (process.env.NODE_ENV === 'development') {
+    console.error('Building hierarchy for nodes:', nodes.length);
+    if (nodes[0]) {
+      console.error('Sample node:', {
+        id: nodes[0].id,
+        parent_id: nodes[0].parent_id,
+        node_type: nodes[0].node_type
+      });
+    }
+  }
+  
+  const nodeMap = new Map();
+  const rootNodes = [];
+  
+  // First pass: create all nodes in the map
+  nodes.forEach(node => {
+    const nodeData = includeDetails ? { ...node } : {
+      id: node.id,
+      title: node.title,
+      node_type: node.node_type,
+      status: node.status,
+      parent_id: node.parent_id,
+      order_index: node.order_index
+    };
+    
+    // Initialize with empty children array
+    nodeMap.set(node.id, {
+      ...nodeData,
+      children: []
+    });
+  });
+  
+  // Second pass: build parent-child relationships
+  nodes.forEach(node => {
+    const currentNode = nodeMap.get(node.id);
+    
+    if (node.parent_id) {
+      const parent = nodeMap.get(node.parent_id);
+      if (parent) {
+        // Add as child to parent
+        parent.children.push(currentNode);
+      } else {
+        // Parent not found, treat as root
+        if (process.env.NODE_ENV === 'development') {
+          console.error(`Parent ${node.parent_id} not found for node ${node.id}`);
+        }
+        rootNodes.push(currentNode);
+      }
+    } else {
+      // No parent_id means it's a root node
+      rootNodes.push(currentNode);
+    }
+  });
+  
+  // Special case: if we have a single root node of type 'root', return its children
+  if (rootNodes.length === 1 && rootNodes[0].node_type === 'root') {
+    // Return the root node itself with its children
+    const rootNode = rootNodes[0];
+    
+    // Sort children by order_index
+    const sortNodes = (nodeArray) => {
+      nodeArray.sort((a, b) => {
+        const orderA = a.order_index ?? 999;
+        const orderB = b.order_index ?? 999;
+        return orderA - orderB;
+      });
+      
+      nodeArray.forEach(node => {
+        if (node.children && node.children.length > 0) {
+          sortNodes(node.children);
+        }
+      });
+    };
+    
+    sortNodes(rootNode.children);
+    return [rootNode]; // Return root with its properly sorted children
+  }
+  
+  // Sort all root nodes and their children
+  const sortNodes = (nodeArray) => {
+    nodeArray.sort((a, b) => {
+      const orderA = a.order_index ?? 999;
+      const orderB = b.order_index ?? 999;
+      return orderA - orderB;
+    });
+    
+    nodeArray.forEach(node => {
+      if (node.children && node.children.length > 0) {
+        sortNodes(node.children);
+      }
+    });
+  };
+  
+  sortNodes(rootNodes);
+  
+  return rootNodes;
+}
+
+/**
+ * Calculate plan statistics
+ */
+function calculatePlanStatistics(nodes) {
+  const stats = {
+    total: 0,
+    type_counts: {
+      root: 0,
+      phase: 0,
+      task: 0,
+      milestone: 0
+    },
+    status_counts: {
+      not_started: 0,
+      in_progress: 0,
+      completed: 0,
+      blocked: 0
+    },
+    in_progress_nodes: [],
+    blocked_nodes: []
+  };
+  
+  const processNode = (node) => {
+    stats.total++;
+    
+    if (node.node_type && stats.type_counts[node.node_type] !== undefined) {
+      stats.type_counts[node.node_type]++;
+    }
+    
+    if (node.status && stats.status_counts[node.status] !== undefined) {
+      stats.status_counts[node.status]++;
+      
+      if (node.status === 'in_progress') {
+        stats.in_progress_nodes.push({
+          id: node.id,
+          title: node.title,
+          type: node.node_type
+        });
+      } else if (node.status === 'blocked') {
+        stats.blocked_nodes.push({
+          id: node.id,
+          title: node.title,
+          type: node.node_type
+        });
+      }
+    }
+    
+    if (node.children && node.children.length > 0) {
+      node.children.forEach(processNode);
+    }
+  };
+  
+  nodes.forEach(processNode);
+  
+  return stats;
 }
 
 module.exports = { setupTools };

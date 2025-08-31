@@ -1,12 +1,13 @@
 {
   "name": "agent-planner-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server interface for the Planning System API",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "jest",
+    "test:tools": "node test-tools.js",
     "setup": "echo 'Please generate an API token from the Agent Planner UI and add it to your .env file.'"
   },
   "dependencies": {

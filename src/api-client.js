@@ -360,26 +360,80 @@ const search = {
    * @returns {Promise<Object>} - Search results
    */
   searchPlan: async (planId, query) => {
-    console.log(`Searching plan ${planId} for "${query}"`);
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Searching plan ${planId} for "${query}"`);
+    }
+    
     try {
+      // Try the documented endpoint first
       const response = await apiClient.get(`/search/plan/${planId}`, {
-        params: { query: encodeURIComponent(query) }
+        params: { query: query } // API expects 'query' parameter
       });
       
-      // Log the actual response format for debugging
-      console.log('Search results response format:', 
-        typeof response.data === 'object' ? Object.keys(response.data).join(', ') : typeof response.data);
-      console.log('Search results count:', 
-        response.data && response.data.results ? response.data.results.length : 'unknown');
-        
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Search response status:', response.status);
+        console.log('Search response type:', typeof response.data);
+      }
+      
       return response.data;
     } catch (error) {
+      // Try alternative endpoint format
+      if (error.response && error.response.status === 404) {
+        try {
+          const altResponse = await apiClient.get(`/plans/${planId}/search`, {
+            params: { query: query }
+          });
+          return altResponse.data;
+        } catch (altError) {
+          // Fallback to client-side search
+          console.error('Search endpoints not found, falling back to client-side search');
+          
+          // Get all nodes and search client-side
+          try {
+            const nodes = await apiClient.get(`/plans/${planId}/nodes`);
+            const results = [];
+            
+            const searchLower = query.toLowerCase();
+            const searchNodes = (nodeList) => {
+              nodeList.forEach(node => {
+                if (node.title?.toLowerCase().includes(searchLower) ||
+                    node.description?.toLowerCase().includes(searchLower) ||
+                    node.context?.toLowerCase().includes(searchLower)) {
+                  results.push({
+                    id: node.id,
+                    type: 'node',
+                    title: node.title,
+                    content: node.description || node.context || '',
+                    created_at: node.created_at,
+                    user_id: node.created_by
+                  });
+                }
+                if (node.children && node.children.length > 0) {
+                  searchNodes(node.children);
+                }
+              });
+            };
+            
+            searchNodes(nodes.data);
+            
+            return {
+              query,
+              results,
+              count: results.length
+            };
+          } catch (fallbackError) {
+            console.error('Fallback search failed:', fallbackError.message);
+          }
+        }
+      }
+      
       console.error('Error searching plan:', error.message);
       if (error.response) {
         console.error('Response status:', error.response.status);
-        console.error('Response data:', error.response.data);
       }
-      throw error;
+      
+      // Return empty results on error
+      return { results: [], count: 0, query };
     }
   },
 
@@ -389,8 +443,50 @@ const search = {
    * @returns {Promise<Object>} - Search results
    */
   globalSearch: async (query) => {
-    const response = await apiClient.get(`/search?q=${encodeURIComponent(query)}`);
-    return response.data;
+    try {
+      const response = await apiClient.get('/search', {
+        params: { query: query } // API expects 'query' parameter
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Global search error:', error.message);
+      
+      // Fallback: search through all accessible plans
+      if (error.response && (error.response.status === 404 || error.response.status === 500)) {
+        try {
+          const plansResponse = await apiClient.get('/plans');
+          const plans = plansResponse.data;
+          const results = [];
+          
+          const searchLower = query.toLowerCase();
+          
+          // Search in plans
+          plans.forEach(plan => {
+            if (plan.title?.toLowerCase().includes(searchLower) ||
+                plan.description?.toLowerCase().includes(searchLower)) {
+              results.push({
+                id: plan.id,
+                type: 'plan',
+                title: plan.title,
+                content: plan.description || '',
+                created_at: plan.created_at
+              });
+            }
+          });
+          
+          return {
+            query,
+            results,
+            count: results.length
+          };
+        } catch (fallbackError) {
+          console.error('Fallback global search failed:', fallbackError.message);
+        }
+      }
+      
+      // Return empty results on error
+      return { results: [], count: 0, query };
+    }
   }
 };
 
@@ -428,6 +524,9 @@ const tokens = {
 };
 
 // Export API client functions
+// Export the axios instance for direct use
+const axiosInstance = apiClient;
+
 module.exports = {
   plans,
   nodes,
@@ -436,5 +535,6 @@ module.exports = {
   artifacts,
   activity,
   search,
-  tokens
+  tokens,
+  axiosInstance  // Export for direct API calls
 };
