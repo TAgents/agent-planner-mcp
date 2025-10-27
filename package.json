@@ -3,12 +3,34 @@
   "version": "0.2.0",
   "description": "MCP server interface for the Planning System API",
   "main": "src/index.js",
+  "bin": {
+    "agent-planner-mcp": "src/index.js"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "jest",
     "test:tools": "node test-tools.js",
-    "setup": "echo 'Please generate an API token from the Agent Planner UI and add it to your .env file.'"
+    "setup": "node src/setup.js",
+    "prepublishOnly": "echo 'Ready to publish agent-planner-mcp'"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "planning",
+    "claude",
+    "ai",
+    "agent-planner"
+  ],
+  "author": "TalkingAgents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/talkingagents/agent-planner-mcp.git"
+  },
+  "homepage": "https://agentplanner.io",
+  "bugs": {
+    "url": "https://github.com/talkingagents/agent-planner-mcp/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.8.0",
@@ -19,5 +41,13 @@
   "devDependencies": {
     "jest": "^29.7.0",
     "nodemon": "^3.0.1"
-  }
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ]
 }

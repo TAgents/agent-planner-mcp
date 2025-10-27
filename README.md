@@ -49,7 +49,30 @@ This MCP server connects to the Planning System API, providing AI agents with co
 - Access to a running Planning System API
 - API token for authentication
 
-### Installation
+### Quick Setup (Recommended)
+
+1. Install dependencies
+```bash
+npm install
+```
+
+2. Run the automated setup wizard
+```bash
+npm run setup
+```
+
+The wizard will:
+- Check API server connectivity
+- Guide you through creating an API token in the UI
+- Create your `.env` file
+- Detect and update your Claude Desktop config
+- Test the connection
+
+That's it! Restart Claude Desktop and you're ready to go.
+
+### Manual Installation (Advanced)
+
+If you prefer manual setup or the wizard doesn't work for your setup:
 
 1. Clone the repository
 ```bash
@@ -62,7 +85,13 @@ cd agent-planner-mcp
 npm install
 ```
 
-3. Configure environment variables
+3. Create an API token:
+   - Open http://localhost:3001/app/settings in your browser
+   - Navigate to "API Tokens" section
+   - Click "Create MCP Token"
+   - Copy the generated token
+
+4. Create `.env` file:
 ```bash
 cp .env.example .env
 ```
@@ -71,24 +100,55 @@ Edit the `.env` file:
 ```
 API_URL=http://localhost:3000
 USER_API_TOKEN=your_api_token_here
-MCP_SERVER_NAME=planning-system-mcp
+MCP_SERVER_NAME=planning-system
 MCP_SERVER_VERSION=0.2.0
-NODE_ENV=development
+NODE_ENV=production
 ```
 
-4. Generate an API token (if needed)
-```bash
-node generate-api-token.js
-```
+5. Configure Claude Desktop manually (see "Using with Claude Desktop" section below)
 
-5. Start the server
+6. Start the server
 ```bash
 npm start
 ```
 
 ## Using with Claude Desktop
 
+### Option 1: Using npx (Recommended - Simplest Setup)
+
 Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "planning-system": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "agent-planner-mcp"
+      ],
+      "env": {
+        "API_URL": "https://api.agentplanner.io",
+        "USER_API_TOKEN": "your_api_token_here"
+      }
+    }
+  }
+}
+```
+
+**Benefits:**
+- No need to clone the repository
+- Always uses the latest published version
+- Simplest configuration
+
+**For local development**, use `http://localhost:3000` instead:
+```json
+"API_URL": "http://localhost:3000"
+```
+
+### Option 2: Using Local Installation
+
+If you prefer to run from a local clone:
 
 ```json
 {
@@ -99,7 +159,7 @@ Add to your `claude_desktop_config.json`:
         "/path/to/agent-planner-mcp/src/index.js"
       ],
       "env": {
-        "API_URL": "http://localhost:3000",
+        "API_URL": "https://api.agentplanner.io",
         "USER_API_TOKEN": "your_api_token_here"
       }
     }
