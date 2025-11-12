@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__planning-system__create_node",
+      "mcp__planning-system__create_plan",
+      "mcp__planning-system__add_log",
+      "mcp__planning-system__get_plan_summary",
+      "mcp__planning-system__batch_update_nodes",
+      "mcp__planning-system__update_node"
+    ]
+  }
+}

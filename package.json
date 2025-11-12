@@ -12,6 +12,7 @@
     "test": "jest",
     "test:tools": "node test-tools.js",
     "setup": "node src/setup.js",
+    "setup-claude-code": "node src/setup-claude-code.js",
     "prepublishOnly": "echo 'Ready to publish agent-planner-mcp'"
   },
   "keywords": [
@@ -47,6 +48,7 @@
   },
   "files": [
     "src/",
+    "claude-code/",
     "README.md",
     "LICENSE"
   ]
