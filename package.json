@@ -27,7 +27,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/talkingagents/agent-planner-mcp.git"
+    "url": "git+https://github.com/talkingagents/agent-planner-mcp.git"
   },
   "homepage": "https://agentplanner.io",
   "bugs": {
