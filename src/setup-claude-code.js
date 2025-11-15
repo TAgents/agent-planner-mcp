@@ -1,12 +1,8 @@
 #!/usr/bin/env node
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import readline from 'readline';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -134,4 +130,9 @@ async function main() {
   rl.close();
 }
 
-main();
+// Run if executed directly
+if (require.main === module) {
+  main();
+}
+
+module.exports = { main };

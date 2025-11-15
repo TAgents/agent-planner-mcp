@@ -1,10 +1,10 @@
 {
   "name": "agent-planner-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "MCP server interface for the Planning System API",
   "main": "src/index.js",
   "bin": {
-    "agent-planner-mcp": "src/index.js"
+    "agent-planner-mcp": "src/cli.js"
   },
   "scripts": {
     "start": "node src/index.js",
