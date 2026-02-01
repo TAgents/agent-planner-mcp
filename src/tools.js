@@ -369,6 +369,45 @@ function setupTools(server) {
           }
         },
         
+        // ===== TASK REFERENCES =====
+        {
+          name: "add_task_reference",
+          description: "Add an external reference to a task (GitHub PR, issue, document, URL, etc.). References link tasks to external resources.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              node_id: { type: "string", description: "Task/Node ID to add reference to" },
+              ref_type: { 
+                type: "string", 
+                description: "Type of reference",
+                enum: ["github_pr", "github_issue", "github_commit", "url", "document", "jira", "linear", "other"]
+              },
+              url: { type: "string", description: "URL of the external resource" },
+              title: { type: "string", description: "Display title for the reference" },
+              status: { 
+                type: "string", 
+                description: "Status of the external resource (optional)",
+                enum: ["open", "closed", "merged", "draft", "in_review"]
+              },
+              external_id: { type: "string", description: "External identifier (e.g., 'owner/repo#123' for GitHub)" }
+            },
+            required: ["plan_id", "node_id", "ref_type", "url", "title"]
+          }
+        },
+        {
+          name: "list_task_references",
+          description: "List all external references for a task",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              node_id: { type: "string", description: "Task/Node ID" }
+            },
+            required: ["plan_id", "node_id"]
+          }
+        },
+        
         // ===== BATCH OPERATIONS =====
         {
           name: "batch_update_nodes",
@@ -739,6 +778,61 @@ function setupTools(server) {
           default:
             throw new Error(`Unknown artifact action: ${action}`);
         }
+      }
+      
+      // ===== TASK REFERENCES =====
+      if (name === "add_task_reference") {
+        const { plan_id, node_id, ref_type, url, title, status, external_id } = args;
+        
+        // Use artifacts system with content_type="reference"
+        const artifact = await apiClient.artifacts.addArtifact(plan_id, node_id, {
+          name: title,
+          content_type: "reference",
+          url: url,
+          metadata: {
+            ref_type: ref_type,
+            status: status || null,
+            external_id: external_id || null,
+            added_at: new Date().toISOString()
+          }
+        });
+        
+        return formatResponse({
+          success: true,
+          reference: {
+            id: artifact.id,
+            title: artifact.name,
+            ref_type: ref_type,
+            url: url,
+            status: status || null,
+            external_id: external_id || null
+          },
+          message: `Reference "${title}" added to task`
+        });
+      }
+      
+      if (name === "list_task_references") {
+        const { plan_id, node_id } = args;
+        
+        // Get all artifacts and filter for references
+        const artifacts = await apiClient.artifacts.getArtifacts(plan_id, node_id);
+        const references = artifacts
+          .filter(a => a.content_type === "reference")
+          .map(a => ({
+            id: a.id,
+            title: a.name,
+            ref_type: a.metadata?.ref_type || "other",
+            url: a.url,
+            status: a.metadata?.status || null,
+            external_id: a.metadata?.external_id || null,
+            added_at: a.metadata?.added_at || a.created_at
+          }));
+        
+        return formatResponse({
+          task_id: node_id,
+          references: references,
+          count: references.length
+        });
       }
       
       // ===== BATCH OPERATIONS =====
