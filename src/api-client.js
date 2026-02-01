@@ -100,6 +100,30 @@ const plans = {
    */
   deletePlan: async (planId) => {
     await apiClient.delete(`/plans/${planId}`);
+  },
+
+  /**
+   * Update plan visibility (make public or private)
+   * @param {string} planId - Plan ID
+   * @param {Object} visibilityData - Visibility settings
+   * @param {string} visibilityData.visibility - 'public' or 'private'
+   * @param {string} [visibilityData.github_repo_owner] - GitHub repo owner (for public plans)
+   * @param {string} [visibilityData.github_repo_name] - GitHub repo name (for public plans)
+   * @returns {Promise<Object>} - Updated plan with visibility info
+   */
+  updateVisibility: async (planId, visibilityData) => {
+    const response = await apiClient.put(`/plans/${planId}/visibility`, visibilityData);
+    return response.data;
+  },
+
+  /**
+   * Get a public plan (no authentication required in browser, but API token needed for MCP)
+   * @param {string} planId - Plan ID
+   * @returns {Promise<Object>} - Public plan details
+   */
+  getPublicPlan: async (planId) => {
+    const response = await apiClient.get(`/plans/${planId}/public`);
+    return response.data;
   }
 };
 

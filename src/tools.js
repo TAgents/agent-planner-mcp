@@ -165,6 +165,31 @@ function setupTools(server) {
             required: ["plan_id"]
           }
         },
+        {
+          name: "share_plan",
+          description: "Share a plan by making it public or private. Public plans can be viewed by anyone with the link.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID to share" },
+              visibility: { 
+                type: "string", 
+                description: "Plan visibility setting",
+                enum: ["public", "private"],
+                default: "public"
+              },
+              github_repo_owner: { 
+                type: "string", 
+                description: "GitHub repository owner (optional, for linking public plans to a repo)" 
+              },
+              github_repo_name: { 
+                type: "string", 
+                description: "GitHub repository name (optional, for linking public plans to a repo)" 
+              }
+            },
+            required: ["plan_id"]
+          }
+        },
         
         // ===== NODE MANAGEMENT TOOLS =====
         {
@@ -541,6 +566,33 @@ function setupTools(server) {
         return formatResponse({
           success: true,
           message: `Plan ${plan_id} deleted successfully`
+        });
+      }
+      
+      if (name === "share_plan") {
+        const { plan_id, visibility = "public", github_repo_owner, github_repo_name } = args;
+        
+        const visibilityData = { visibility };
+        if (github_repo_owner) visibilityData.github_repo_owner = github_repo_owner;
+        if (github_repo_name) visibilityData.github_repo_name = github_repo_name;
+        
+        const result = await apiClient.plans.updateVisibility(plan_id, visibilityData);
+        
+        const shareUrl = visibility === "public" 
+          ? `https://www.agentplanner.io/app/plans/${plan_id}`
+          : null;
+        
+        return formatResponse({
+          success: true,
+          plan_id: plan_id,
+          visibility: result.visibility,
+          is_public: result.is_public,
+          share_url: shareUrl,
+          github_repo_owner: result.github_repo_owner,
+          github_repo_name: result.github_repo_name,
+          message: visibility === "public" 
+            ? `Plan is now public. Share URL: ${shareUrl}`
+            : `Plan is now private.`
         });
       }
       
