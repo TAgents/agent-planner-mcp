@@ -488,6 +488,51 @@ function setupTools(server) {
             },
             required: ["plan_id"]
           }
+        },
+        
+        // ===== AGENT CONTEXT TOOLS (Leaf-up context loading) =====
+        {
+          name: "get_agent_context",
+          description: "Get focused context for a specific task/node. Uses leaf-up traversal - returns only the relevant path from the node to root, not the entire plan tree. Best for agents starting work on a specific task.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              node_id: { 
+                type: "string", 
+                description: "Task or phase node ID to get context for" 
+              },
+              include_knowledge: { 
+                type: "boolean", 
+                description: "Include knowledge entries from relevant scopes (plan, goals, org)",
+                default: true
+              },
+              include_siblings: { 
+                type: "boolean", 
+                description: "Include sibling tasks in the same phase",
+                default: false
+              }
+            },
+            required: ["node_id"]
+          }
+        },
+        {
+          name: "get_plan_context",
+          description: "Get plan-level context overview. Returns plan details, phase summaries (not full tree), linked goals, and organization. Use get_agent_context for task-focused work.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { 
+                type: "string", 
+                description: "Plan ID" 
+              },
+              include_knowledge: { 
+                type: "boolean", 
+                description: "Include knowledge entries",
+                default: true
+              }
+            },
+            required: ["plan_id"]
+          }
         }
       ]
     };
@@ -949,6 +994,28 @@ function setupTools(server) {
             ? ((stats.status_counts.completed / stats.total) * 100).toFixed(1)
             : 0
         });
+      }
+      
+      // ===== AGENT CONTEXT TOOLS =====
+      if (name === "get_agent_context") {
+        const { node_id, include_knowledge = true, include_siblings = false } = args;
+        
+        const result = await apiClient.context.getNodeContext(node_id, {
+          include_knowledge,
+          include_siblings
+        });
+        
+        return formatResponse(result);
+      }
+      
+      if (name === "get_plan_context") {
+        const { plan_id, include_knowledge = true } = args;
+        
+        const result = await apiClient.context.getPlanContext(plan_id, {
+          include_knowledge
+        });
+        
+        return formatResponse(result);
       }
       
       // Tool not found
