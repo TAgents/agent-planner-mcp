@@ -533,6 +533,252 @@ function setupTools(server) {
             },
             required: ["plan_id"]
           }
+        },
+        
+        // ===== ORGANIZATION TOOLS =====
+        {
+          name: "list_organizations",
+          description: "List all organizations the user is a member of",
+          inputSchema: {
+            type: "object",
+            properties: {}
+          }
+        },
+        {
+          name: "get_organization",
+          description: "Get organization details including member count and plan count",
+          inputSchema: {
+            type: "object",
+            properties: {
+              organization_id: { type: "string", description: "Organization ID" }
+            },
+            required: ["organization_id"]
+          }
+        },
+        {
+          name: "create_organization",
+          description: "Create a new organization. You become the owner.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Organization name" },
+              description: { type: "string", description: "Organization description" },
+              slug: { type: "string", description: "URL-friendly slug (auto-generated if not provided)" }
+            },
+            required: ["name"]
+          }
+        },
+        {
+          name: "update_organization",
+          description: "Update organization details (owner only)",
+          inputSchema: {
+            type: "object",
+            properties: {
+              organization_id: { type: "string", description: "Organization ID" },
+              name: { type: "string", description: "New name" },
+              description: { type: "string", description: "New description" }
+            },
+            required: ["organization_id"]
+          }
+        },
+        
+        // ===== GOAL TOOLS =====
+        {
+          name: "list_goals",
+          description: "List goals, optionally filtered by organization or status",
+          inputSchema: {
+            type: "object",
+            properties: {
+              organization_id: { type: "string", description: "Filter by organization ID" },
+              status: { 
+                type: "string", 
+                description: "Filter by status",
+                enum: ["active", "achieved", "at_risk", "abandoned"]
+              }
+            }
+          }
+        },
+        {
+          name: "get_goal",
+          description: "Get goal details including linked plans",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID" }
+            },
+            required: ["goal_id"]
+          }
+        },
+        {
+          name: "create_goal",
+          description: "Create a new goal within an organization",
+          inputSchema: {
+            type: "object",
+            properties: {
+              organization_id: { type: "string", description: "Organization ID" },
+              title: { type: "string", description: "Goal title" },
+              description: { type: "string", description: "Goal description" },
+              success_metrics: { 
+                type: "array", 
+                description: "Success metrics array [{metric, target, current, unit}]",
+                items: {
+                  type: "object",
+                  properties: {
+                    metric: { type: "string" },
+                    target: { type: "number" },
+                    current: { type: "number" },
+                    unit: { type: "string" }
+                  }
+                }
+              },
+              time_horizon: { type: "string", description: "Target date (ISO format)" },
+              github_repo_url: { type: "string", description: "Related GitHub repo URL" }
+            },
+            required: ["organization_id", "title"]
+          }
+        },
+        {
+          name: "update_goal",
+          description: "Update goal details or status",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID" },
+              title: { type: "string", description: "New title" },
+              description: { type: "string", description: "New description" },
+              status: { 
+                type: "string", 
+                description: "New status",
+                enum: ["active", "achieved", "at_risk", "abandoned"]
+              },
+              success_metrics: { type: "array", description: "Updated metrics" },
+              time_horizon: { type: "string", description: "New target date" }
+            },
+            required: ["goal_id"]
+          }
+        },
+        {
+          name: "link_plan_to_goal",
+          description: "Link a plan to a goal (shows the plan contributes to this goal)",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID" },
+              plan_id: { type: "string", description: "Plan ID to link" }
+            },
+            required: ["goal_id", "plan_id"]
+          }
+        },
+        {
+          name: "unlink_plan_from_goal",
+          description: "Remove a plan-goal link",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID" },
+              plan_id: { type: "string", description: "Plan ID to unlink" }
+            },
+            required: ["goal_id", "plan_id"]
+          }
+        },
+        
+        // ===== KNOWLEDGE TOOLS =====
+        {
+          name: "add_knowledge_entry",
+          description: "Add a knowledge entry (decision, context, constraint, learning, reference, note) to a scope",
+          inputSchema: {
+            type: "object",
+            properties: {
+              scope: { 
+                type: "string", 
+                description: "Scope type",
+                enum: ["organization", "goal", "plan"]
+              },
+              scope_id: { type: "string", description: "ID of the org, goal, or plan" },
+              entry_type: { 
+                type: "string", 
+                description: "Type of knowledge entry",
+                enum: ["decision", "context", "constraint", "learning", "reference", "note"]
+              },
+              title: { type: "string", description: "Entry title" },
+              content: { type: "string", description: "Entry content" },
+              source_url: { type: "string", description: "Source URL (optional)" },
+              tags: { type: "array", description: "Tags for categorization", items: { type: "string" } }
+            },
+            required: ["scope", "scope_id", "entry_type", "title", "content"]
+          }
+        },
+        {
+          name: "list_knowledge_entries",
+          description: "List knowledge entries for a scope",
+          inputSchema: {
+            type: "object",
+            properties: {
+              scope: { 
+                type: "string", 
+                description: "Scope type",
+                enum: ["organization", "goal", "plan"]
+              },
+              scope_id: { type: "string", description: "ID of the org, goal, or plan" },
+              entry_type: { 
+                type: "string", 
+                description: "Filter by entry type",
+                enum: ["decision", "context", "constraint", "learning", "reference", "note"]
+              },
+              tags: { type: "string", description: "Filter by tags (comma-separated)" },
+              limit: { type: "integer", description: "Max entries to return", default: 50 }
+            },
+            required: ["scope", "scope_id"]
+          }
+        },
+        {
+          name: "search_knowledge",
+          description: "Search knowledge entries across scopes using text search",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Search query" },
+              scope: { 
+                type: "string", 
+                description: "Limit to scope type",
+                enum: ["organization", "goal", "plan"]
+              },
+              scope_id: { type: "string", description: "Limit to specific scope" },
+              entry_types: { 
+                type: "array", 
+                description: "Filter by entry types",
+                items: { type: "string" }
+              },
+              limit: { type: "integer", description: "Max results", default: 10 }
+            },
+            required: ["query"]
+          }
+        },
+        {
+          name: "update_knowledge_entry",
+          description: "Update a knowledge entry",
+          inputSchema: {
+            type: "object",
+            properties: {
+              entry_id: { type: "string", description: "Entry ID" },
+              title: { type: "string", description: "New title" },
+              content: { type: "string", description: "New content" },
+              entry_type: { type: "string", description: "New type" },
+              tags: { type: "array", description: "New tags", items: { type: "string" } }
+            },
+            required: ["entry_id"]
+          }
+        },
+        {
+          name: "delete_knowledge_entry",
+          description: "Delete a knowledge entry",
+          inputSchema: {
+            type: "object",
+            properties: {
+              entry_id: { type: "string", description: "Entry ID to delete" }
+            },
+            required: ["entry_id"]
+          }
         }
       ]
     };
@@ -1016,6 +1262,143 @@ function setupTools(server) {
         });
         
         return formatResponse(result);
+      }
+      
+      // ===== ORGANIZATION TOOLS =====
+      if (name === "list_organizations") {
+        const result = await apiClient.organizations.list();
+        return formatResponse(result);
+      }
+      
+      if (name === "get_organization") {
+        const { organization_id } = args;
+        const result = await apiClient.organizations.get(organization_id);
+        return formatResponse(result);
+      }
+      
+      if (name === "create_organization") {
+        const { name, description, slug } = args;
+        const result = await apiClient.organizations.create({ name, description, slug });
+        return formatResponse(result);
+      }
+      
+      if (name === "update_organization") {
+        const { organization_id, ...updateData } = args;
+        const result = await apiClient.organizations.update(organization_id, updateData);
+        return formatResponse(result);
+      }
+      
+      // ===== GOAL TOOLS =====
+      if (name === "list_goals") {
+        const { organization_id, status } = args;
+        const result = await apiClient.goals.list({ organization_id, status });
+        return formatResponse(result);
+      }
+      
+      if (name === "get_goal") {
+        const { goal_id } = args;
+        const result = await apiClient.goals.get(goal_id);
+        return formatResponse(result);
+      }
+      
+      if (name === "create_goal") {
+        const { organization_id, title, description, success_metrics, time_horizon, github_repo_url } = args;
+        const result = await apiClient.goals.create({
+          organization_id,
+          title,
+          description,
+          success_metrics,
+          time_horizon,
+          github_repo_url
+        });
+        return formatResponse(result);
+      }
+      
+      if (name === "update_goal") {
+        const { goal_id, ...updateData } = args;
+        const result = await apiClient.goals.update(goal_id, updateData);
+        return formatResponse(result);
+      }
+      
+      if (name === "link_plan_to_goal") {
+        const { goal_id, plan_id } = args;
+        const result = await apiClient.goals.linkPlan(goal_id, plan_id);
+        return formatResponse({
+          success: true,
+          message: `Plan ${plan_id} linked to goal ${goal_id}`,
+          ...result
+        });
+      }
+      
+      if (name === "unlink_plan_from_goal") {
+        const { goal_id, plan_id } = args;
+        const result = await apiClient.goals.unlinkPlan(goal_id, plan_id);
+        return formatResponse({
+          success: true,
+          message: `Plan ${plan_id} unlinked from goal ${goal_id}`,
+          ...result
+        });
+      }
+      
+      // ===== KNOWLEDGE TOOLS =====
+      if (name === "add_knowledge_entry") {
+        const { scope, scope_id, entry_type, title, content, source_url, tags } = args;
+        const result = await apiClient.knowledge.createEntry({
+          scope,
+          scope_id,
+          entry_type,
+          title,
+          content,
+          source_url,
+          tags
+        });
+        return formatResponse(result);
+      }
+      
+      if (name === "list_knowledge_entries") {
+        const { scope, scope_id, entry_type, tags, limit = 50 } = args;
+        
+        // First get/create the store for this scope
+        const stores = await apiClient.knowledge.listStores({ scope, scope_id });
+        if (!stores || stores.length === 0) {
+          return formatResponse({ entries: [], message: 'No knowledge store exists for this scope yet' });
+        }
+        
+        const store = stores[0];
+        const result = await apiClient.knowledge.listEntries(store.id, { entry_type, tags, limit });
+        return formatResponse(result);
+      }
+      
+      if (name === "search_knowledge") {
+        const { query, scope, scope_id, entry_types, limit = 10 } = args;
+        
+        // Build search request
+        const searchData = { query, limit };
+        if (scope && scope_id) {
+          searchData.scope = scope;
+          searchData.scope_id = scope_id;
+        }
+        if (entry_types) {
+          searchData.entry_types = entry_types;
+        }
+        
+        const result = await apiClient.knowledge.search(searchData);
+        return formatResponse(result);
+      }
+      
+      if (name === "update_knowledge_entry") {
+        const { entry_id, ...updateData } = args;
+        const result = await apiClient.knowledge.updateEntry(entry_id, updateData);
+        return formatResponse(result);
+      }
+      
+      if (name === "delete_knowledge_entry") {
+        const { entry_id } = args;
+        await apiClient.knowledge.deleteEntry(entry_id);
+        return formatResponse({
+          success: true,
+          message: `Knowledge entry ${entry_id} deleted`
+        });
       }
       
       // Tool not found

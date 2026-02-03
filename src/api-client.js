@@ -548,6 +548,152 @@ const tokens = {
 };
 
 /**
+ * Organization API functions
+ */
+const organizations = {
+  list: async () => {
+    const response = await apiClient.get('/organizations');
+    return response.data.organizations || response.data;
+  },
+  
+  get: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}`);
+    return response.data;
+  },
+  
+  create: async (data) => {
+    const response = await apiClient.post('/organizations', data);
+    return response.data;
+  },
+  
+  update: async (orgId, data) => {
+    const response = await apiClient.put(`/organizations/${orgId}`, data);
+    return response.data;
+  },
+  
+  delete: async (orgId) => {
+    const response = await apiClient.delete(`/organizations/${orgId}`);
+    return response.data;
+  },
+  
+  listMembers: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/members`);
+    return response.data.members || response.data;
+  },
+  
+  addMember: async (orgId, data) => {
+    const response = await apiClient.post(`/organizations/${orgId}/members`, data);
+    return response.data;
+  },
+  
+  removeMember: async (orgId, memberId) => {
+    const response = await apiClient.delete(`/organizations/${orgId}/members/${memberId}`);
+    return response.data;
+  }
+};
+
+/**
+ * Goals API functions
+ */
+const goals = {
+  list: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.organization_id) params.append('organization_id', filters.organization_id);
+    if (filters.status) params.append('status', filters.status);
+    const response = await apiClient.get(`/goals?${params.toString()}`);
+    return response.data.goals || response.data;
+  },
+  
+  get: async (goalId) => {
+    const response = await apiClient.get(`/goals/${goalId}`);
+    return response.data;
+  },
+  
+  create: async (data) => {
+    const response = await apiClient.post('/goals', data);
+    return response.data;
+  },
+  
+  update: async (goalId, data) => {
+    const response = await apiClient.put(`/goals/${goalId}`, data);
+    return response.data;
+  },
+  
+  updateMetrics: async (goalId, metrics) => {
+    const response = await apiClient.put(`/goals/${goalId}/metrics`, { metrics });
+    return response.data;
+  },
+  
+  delete: async (goalId) => {
+    const response = await apiClient.delete(`/goals/${goalId}`);
+    return response.data;
+  },
+  
+  linkPlan: async (goalId, planId) => {
+    const response = await apiClient.post(`/goals/${goalId}/plans/${planId}`);
+    return response.data;
+  },
+  
+  unlinkPlan: async (goalId, planId) => {
+    const response = await apiClient.delete(`/goals/${goalId}/plans/${planId}`);
+    return response.data;
+  }
+};
+
+/**
+ * Knowledge Store API functions
+ */
+const knowledge = {
+  listStores: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.scope) params.append('scope', filters.scope);
+    if (filters.scope_id) params.append('scope_id', filters.scope_id);
+    const response = await apiClient.get(`/knowledge/stores?${params.toString()}`);
+    return response.data.stores || response.data;
+  },
+  
+  getStore: async (storeId) => {
+    const response = await apiClient.get(`/knowledge/stores/${storeId}`);
+    return response.data;
+  },
+  
+  listEntries: async (storeId, filters = {}) => {
+    const params = new URLSearchParams({ store_id: storeId });
+    if (filters.entry_type) params.append('entry_type', filters.entry_type);
+    if (filters.tags) params.append('tags', filters.tags);
+    if (filters.limit) params.append('limit', filters.limit);
+    if (filters.offset) params.append('offset', filters.offset);
+    const response = await apiClient.get(`/knowledge/entries?${params.toString()}`);
+    return response.data;
+  },
+  
+  getEntry: async (entryId) => {
+    const response = await apiClient.get(`/knowledge/entries/${entryId}`);
+    return response.data;
+  },
+  
+  createEntry: async (data) => {
+    const response = await apiClient.post('/knowledge/entries', data);
+    return response.data;
+  },
+  
+  updateEntry: async (entryId, data) => {
+    const response = await apiClient.put(`/knowledge/entries/${entryId}`, data);
+    return response.data;
+  },
+  
+  deleteEntry: async (entryId) => {
+    const response = await apiClient.delete(`/knowledge/entries/${entryId}`);
+    return response.data;
+  },
+  
+  search: async (data) => {
+    const response = await apiClient.post('/knowledge/search', data);
+    return response.data;
+  }
+};
+
+/**
  * Agent Context API functions (leaf-up context loading)
  */
 const context = {
@@ -599,6 +745,9 @@ module.exports = {
   activity,
   search,
   tokens,
+  organizations,
+  goals,
+  knowledge,
   context,
   axiosInstance  // Export for direct API calls
 };
