@@ -547,6 +547,45 @@ const tokens = {
   }
 };
 
+/**
+ * Agent Context API functions (leaf-up context loading)
+ */
+const context = {
+  /**
+   * Get focused context for a specific node (task/phase)
+   * Traverses from node up to root, including goals, org, and knowledge
+   * @param {string} nodeId - Node ID
+   * @param {Object} options - Options (include_knowledge, include_siblings)
+   * @returns {Promise<Object>} - Agent context
+   */
+  getNodeContext: async (nodeId, options = {}) => {
+    const params = new URLSearchParams({ node_id: nodeId });
+    if (options.include_knowledge !== undefined) {
+      params.append('include_knowledge', options.include_knowledge);
+    }
+    if (options.include_siblings !== undefined) {
+      params.append('include_siblings', options.include_siblings);
+    }
+    const response = await apiClient.get(`/context?${params.toString()}`);
+    return response.data;
+  },
+
+  /**
+   * Get plan-level context (overview, not full tree)
+   * @param {string} planId - Plan ID
+   * @param {Object} options - Options (include_knowledge)
+   * @returns {Promise<Object>} - Plan context
+   */
+  getPlanContext: async (planId, options = {}) => {
+    const params = new URLSearchParams({ plan_id: planId });
+    if (options.include_knowledge !== undefined) {
+      params.append('include_knowledge', options.include_knowledge);
+    }
+    const response = await apiClient.get(`/context/plan?${params.toString()}`);
+    return response.data;
+  }
+};
+
 // Export API client functions
 // Export the axios instance for direct use
 const axiosInstance = apiClient;
@@ -560,5 +599,6 @@ module.exports = {
   activity,
   search,
   tokens,
+  context,
   axiosInstance  // Export for direct API calls
 };
