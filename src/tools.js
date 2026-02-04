@@ -56,6 +56,157 @@ function setupTools(server) {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [
+        // ========================================
+        // QUICK ACTIONS - Low friction entry points
+        // Use these for common operations
+        // ========================================
+        {
+          name: "quick_plan",
+          description: "Create a plan quickly from a title and list of tasks. Perfect for getting started fast - just provide a title and task names. Returns plan URL and task IDs for immediate use.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Plan title" },
+              description: { type: "string", description: "Optional plan description" },
+              tasks: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "List of task titles (simple strings). A phase will be created automatically."
+              },
+              goal_id: { type: "string", description: "Optionally link to a goal" },
+              organization_id: { type: "string", description: "Organization ID (uses default if not provided)" }
+            },
+            required: ["title", "tasks"]
+          }
+        },
+        {
+          name: "quick_task",
+          description: "Add a single task to an existing plan. Minimal parameters - just plan_id and title. Automatically adds to the first phase or creates one.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan to add task to" },
+              title: { type: "string", description: "Task title" },
+              description: { type: "string", description: "Optional task description" },
+              phase_id: { type: "string", description: "Specific phase to add to (optional - uses first phase if not provided)" },
+              agent_instructions: { type: "string", description: "Instructions for AI agents working on this task" }
+            },
+            required: ["plan_id", "title"]
+          }
+        },
+        {
+          name: "quick_status",
+          description: "Update a task's status. The most common operation - made simple. Returns what to do next.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              task_id: { type: "string", description: "Task ID to update" },
+              plan_id: { type: "string", description: "Plan ID (required for API)" },
+              status: { 
+                type: "string", 
+                enum: ["not_started", "in_progress", "completed", "blocked"],
+                description: "New status"
+              },
+              note: { type: "string", description: "Optional note explaining the status change (especially useful for 'blocked')" }
+            },
+            required: ["task_id", "plan_id", "status"]
+          }
+        },
+        {
+          name: "quick_log",
+          description: "Add a progress note to a task. Use this to document work as you go - helps humans follow along and other agents understand what happened.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              task_id: { type: "string", description: "Task ID" },
+              plan_id: { type: "string", description: "Plan ID" },
+              message: { type: "string", description: "What you did or learned" },
+              log_type: { 
+                type: "string", 
+                enum: ["progress", "decision", "blocker", "completion"],
+                default: "progress",
+                description: "Type of log entry"
+              }
+            },
+            required: ["task_id", "plan_id", "message"]
+          }
+        },
+
+        // ========================================
+        // CONTEXT LOADING - Get everything you need
+        // Use before starting work on a plan/goal
+        // ========================================
+        {
+          name: "get_context",
+          description: "Load EVERYTHING you need to work on a plan or goal: structure, status, progress, blocked tasks, recent activity, and relevant knowledge. Call this FIRST before starting work.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan to get context for" },
+              goal_id: { type: "string", description: "Goal to get context for" },
+              include_knowledge: { type: "boolean", default: true, description: "Include relevant knowledge entries" }
+            }
+          }
+        },
+        {
+          name: "get_my_tasks",
+          description: "Get tasks that need attention - blocked tasks, in-progress tasks, and next tasks to start. Perfect for heartbeat check-ins.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Specific plan to check (optional - checks all if not provided)" },
+              status: { 
+                type: "array", 
+                items: { type: "string" },
+                default: ["blocked", "in_progress"],
+                description: "Task statuses to include"
+              }
+            }
+          }
+        },
+
+        // ========================================
+        // KNOWLEDGE - Build persistent memory
+        // ========================================
+        {
+          name: "add_learning",
+          description: "Capture something you learned for future reference. This persists beyond the current session - other agents and future-you will benefit.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Brief title summarizing the learning" },
+              content: { type: "string", description: "What you learned - be specific and include context" },
+              scope: { type: "string", enum: ["organization", "goal", "plan"], description: "Where to store this (defaults to organization)" },
+              scope_id: { type: "string", description: "ID of the organization/goal/plan" },
+              tags: { type: "array", items: { type: "string" }, description: "Tags for easier retrieval" },
+              entry_type: {
+                type: "string",
+                enum: ["learning", "decision", "context", "constraint"],
+                default: "learning",
+                description: "Type of knowledge"
+              }
+            },
+            required: ["title", "content"]
+          }
+        },
+
+        // ========================================
+        // MARKDOWN EXPORT/IMPORT - Filesystem pattern
+        // ========================================
+        {
+          name: "export_plan_markdown",
+          description: "Export a plan as markdown text. Useful for reviewing plans in text format or saving to files.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan to export" },
+              include_descriptions: { type: "boolean", default: true, description: "Include task descriptions" },
+              include_status: { type: "boolean", default: true, description: "Include status indicators" }
+            },
+            required: ["plan_id"]
+          }
+        },
+
         // ===== UNIFIED SEARCH TOOL =====
         {
           name: "search",
@@ -823,6 +974,447 @@ function setupTools(server) {
     }
     
     try {
+      // ========================================
+      // QUICK ACTIONS IMPLEMENTATIONS
+      // ========================================
+      
+      if (name === "quick_plan") {
+        const { title, description, tasks, goal_id, organization_id } = args;
+        
+        if (!tasks || tasks.length === 0) {
+          return formatResponse({
+            error: "At least one task is required",
+            suggestion: "Provide an array of task titles in the 'tasks' parameter"
+          });
+        }
+        
+        // Create the plan
+        const planData = { title };
+        if (description) planData.description = description;
+        if (organization_id) planData.organization_id = organization_id;
+        
+        const plan = await apiClient.plans.createPlan(planData);
+        
+        // Get the root node
+        const nodes = await apiClient.nodes.getNodes(plan.id);
+        const rootNode = nodes.find(n => n.node_type === 'root') || nodes[0];
+        
+        // Create a phase for the tasks
+        const phase = await apiClient.nodes.createNode(plan.id, {
+          parent_id: rootNode.id,
+          node_type: 'phase',
+          title: 'Tasks',
+          status: 'not_started',
+          order_index: 0
+        });
+        
+        // Create tasks
+        const createdTasks = [];
+        for (let i = 0; i < tasks.length; i++) {
+          const task = await apiClient.nodes.createNode(plan.id, {
+            parent_id: phase.id,
+            node_type: 'task',
+            title: tasks[i],
+            status: 'not_started',
+            order_index: i
+          });
+          createdTasks.push({ id: task.id, title: task.title });
+        }
+        
+        // Link to goal if provided
+        if (goal_id) {
+          try {
+            await apiClient.goals.linkPlan(goal_id, plan.id);
+          } catch (e) {
+            // Goal linking failed, continue anyway
+          }
+        }
+        
+        return formatResponse({
+          success: true,
+          message: `Plan "${title}" created with ${tasks.length} tasks`,
+          plan_id: plan.id,
+          plan_url: `https://www.agentplanner.io/app/plans/${plan.id}`,
+          phase_id: phase.id,
+          task_ids: createdTasks.map(t => t.id),
+          tasks: createdTasks,
+          next_steps: [
+            "Use quick_status to update task progress",
+            "Use quick_log to document your work",
+            "Use get_context to load full plan details"
+          ]
+        });
+      }
+      
+      if (name === "quick_task") {
+        const { plan_id, title, description, phase_id, agent_instructions } = args;
+        
+        // Get plan structure to find the phase
+        const nodes = await apiClient.nodes.getNodes(plan_id);
+        const flatNodes = flattenNodes(nodes);
+        
+        // Find target phase
+        let targetPhaseId = phase_id;
+        if (!targetPhaseId) {
+          // Find first phase
+          const phases = flatNodes.filter(n => n.node_type === 'phase');
+          if (phases.length > 0) {
+            targetPhaseId = phases[0].id;
+          } else {
+            // No phase exists, create one
+            const rootNode = flatNodes.find(n => n.node_type === 'root') || nodes[0];
+            const newPhase = await apiClient.nodes.createNode(plan_id, {
+              parent_id: rootNode.id,
+              node_type: 'phase',
+              title: 'Tasks',
+              status: 'not_started',
+              order_index: 0
+            });
+            targetPhaseId = newPhase.id;
+          }
+        }
+        
+        // Get task count in phase for order_index
+        const phaseTasks = flatNodes.filter(n => n.parent_id === targetPhaseId && n.node_type === 'task');
+        
+        // Create the task
+        const taskData = {
+          parent_id: targetPhaseId,
+          node_type: 'task',
+          title,
+          status: 'not_started',
+          order_index: phaseTasks.length
+        };
+        if (description) taskData.description = description;
+        if (agent_instructions) taskData.agent_instructions = agent_instructions;
+        
+        const task = await apiClient.nodes.createNode(plan_id, taskData);
+        
+        return formatResponse({
+          success: true,
+          message: `Task "${title}" added to plan`,
+          task_id: task.id,
+          plan_id: plan_id,
+          phase_id: targetPhaseId,
+          task_url: `https://www.agentplanner.io/app/plans/${plan_id}?node=${task.id}`,
+          next_steps: [
+            "Use quick_status to mark as in_progress when you start",
+            "Use quick_log to document progress"
+          ]
+        });
+      }
+      
+      if (name === "quick_status") {
+        const { task_id, plan_id, status, note } = args;
+        
+        // Update the task status
+        const updateData = { status };
+        const updated = await apiClient.nodes.updateNode(plan_id, task_id, updateData);
+        
+        // Add a log entry if note provided or if blocking
+        if (note || status === 'blocked') {
+          const logMessage = note || (status === 'blocked' ? 'Task blocked - needs attention' : `Status changed to ${status}`);
+          try {
+            await apiClient.logs.addLogEntry(plan_id, task_id, {
+              type: status === 'blocked' ? 'blocker' : 'progress',
+              content: logMessage
+            });
+          } catch (e) {
+            // Log failed, continue
+          }
+        }
+        
+        // Get next tasks for suggestion
+        let nextTasks = [];
+        try {
+          const nodes = await apiClient.nodes.getNodes(plan_id);
+          const flatNodes = flattenNodes(nodes);
+          nextTasks = flatNodes
+            .filter(n => n.node_type === 'task' && n.status === 'not_started')
+            .slice(0, 3)
+            .map(n => ({ id: n.id, title: n.title }));
+        } catch (e) {
+          // Failed to get next tasks, continue
+        }
+        
+        const response = {
+          success: true,
+          message: `Task status updated to "${status}"`,
+          task_id,
+          plan_id,
+          new_status: status
+        };
+        
+        if (status === 'completed' && nextTasks.length > 0) {
+          response.next_tasks = nextTasks;
+          response.suggestion = "Here are the next tasks to work on";
+        } else if (status === 'blocked') {
+          response.suggestion = "Task marked as blocked. A human will be notified to help unblock.";
+        }
+        
+        return formatResponse(response);
+      }
+      
+      if (name === "quick_log") {
+        const { task_id, plan_id, message, log_type = 'progress' } = args;
+        
+        const logEntry = await apiClient.logs.addLogEntry(plan_id, task_id, {
+          type: log_type,
+          content: message
+        });
+        
+        return formatResponse({
+          success: true,
+          message: "Progress logged",
+          log_id: logEntry.id,
+          task_id,
+          plan_id,
+          logged: message,
+          tip: "Good practice! Logging helps humans follow your work."
+        });
+      }
+      
+      // ========================================
+      // CONTEXT LOADING IMPLEMENTATIONS
+      // ========================================
+      
+      if (name === "get_context") {
+        // Redirect to understand_context implementation (same functionality)
+        const { plan_id, goal_id, include_knowledge = true } = args;
+        
+        if (!plan_id && !goal_id) {
+          return formatResponse({
+            error: "Provide either plan_id or goal_id to get context",
+            suggestion: "Use list_plans or list_goals to find IDs"
+          });
+        }
+        
+        const context = {
+          retrieved_at: new Date().toISOString()
+        };
+        
+        // Get goal context
+        if (goal_id) {
+          try {
+            context.goal = await apiClient.goals.getGoal(goal_id);
+            if (include_knowledge) {
+              try {
+                const knowledge = await apiClient.knowledge.getEntries({ 
+                  scope: 'goal',
+                  scope_id: goal_id,
+                  limit: 10 
+                });
+                context.goal_knowledge = knowledge.entries || [];
+              } catch (e) {}
+            }
+          } catch (e) {
+            context.goal_error = e.message;
+          }
+        }
+        
+        // Get plan context
+        if (plan_id) {
+          try {
+            context.plan = await apiClient.plans.getPlan(plan_id);
+            context.plan_url = `https://www.agentplanner.io/app/plans/${plan_id}`;
+            
+            const nodes = await apiClient.nodes.getNodes(plan_id);
+            context.statistics = calculatePlanStatistics(nodes);
+            context.progress_percentage = context.statistics.total > 0 
+              ? ((context.statistics.status_counts.completed / context.statistics.total) * 100).toFixed(1) + '%'
+              : '0%';
+            
+            const flatNodes = flattenNodes(nodes);
+            context.needs_attention = {
+              blocked: flatNodes.filter(n => n.status === 'blocked').map(n => ({ 
+                id: n.id, title: n.title, type: n.node_type
+              })),
+              in_progress: flatNodes.filter(n => n.status === 'in_progress').map(n => ({ 
+                id: n.id, title: n.title, type: n.node_type
+              })),
+              ready_to_start: flatNodes
+                .filter(n => n.node_type === 'task' && n.status === 'not_started')
+                .slice(0, 5)
+                .map(n => ({ id: n.id, title: n.title }))
+            };
+            
+            try {
+              const activity = await apiClient.activity.getPlanActivity(plan_id);
+              context.recent_activity = (activity || []).slice(0, 5);
+            } catch (e) {}
+            
+            if (include_knowledge) {
+              try {
+                const knowledge = await apiClient.knowledge.getEntries({ 
+                  scope: 'plan',
+                  scope_id: plan_id,
+                  limit: 10 
+                });
+                context.plan_knowledge = knowledge.entries || [];
+              } catch (e) {}
+            }
+          } catch (e) {
+            context.plan_error = e.message;
+          }
+        }
+        
+        context.recommendation = context.needs_attention?.blocked?.length > 0 
+          ? "⚠️ There are blocked tasks that need attention first"
+          : context.needs_attention?.in_progress?.length > 0
+            ? "Continue working on the in-progress tasks"
+            : "Pick a task from ready_to_start to begin";
+            
+        return formatResponse(context);
+      }
+      
+      if (name === "get_my_tasks") {
+        const { plan_id, status = ["blocked", "in_progress"] } = args;
+        
+        const tasks = {
+          retrieved_at: new Date().toISOString(),
+          needs_attention: [],
+          ready_to_start: []
+        };
+        
+        // Get plans to check
+        let plansToCheck = [];
+        if (plan_id) {
+          plansToCheck = [{ id: plan_id }];
+        } else {
+          plansToCheck = await apiClient.plans.getPlans();
+        }
+        
+        for (const plan of plansToCheck.slice(0, 10)) { // Limit to 10 plans
+          try {
+            const nodes = await apiClient.nodes.getNodes(plan.id);
+            const flatNodes = flattenNodes(nodes);
+            
+            const matchingTasks = flatNodes
+              .filter(n => n.node_type === 'task' && status.includes(n.status))
+              .map(n => ({
+                id: n.id,
+                title: n.title,
+                status: n.status,
+                plan_id: plan.id,
+                plan_title: plan.title
+              }));
+            
+            tasks.needs_attention.push(...matchingTasks);
+            
+            // Also get a few ready-to-start tasks
+            const readyTasks = flatNodes
+              .filter(n => n.node_type === 'task' && n.status === 'not_started')
+              .slice(0, 3)
+              .map(n => ({
+                id: n.id,
+                title: n.title,
+                plan_id: plan.id,
+                plan_title: plan.title
+              }));
+            
+            tasks.ready_to_start.push(...readyTasks);
+          } catch (e) {
+            // Skip this plan
+          }
+        }
+        
+        tasks.summary = {
+          blocked: tasks.needs_attention.filter(t => t.status === 'blocked').length,
+          in_progress: tasks.needs_attention.filter(t => t.status === 'in_progress').length,
+          ready: tasks.ready_to_start.length
+        };
+        
+        return formatResponse(tasks);
+      }
+      
+      // ========================================
+      // KNOWLEDGE SHORTCUTS
+      // ========================================
+      
+      if (name === "add_learning") {
+        const { title, content, scope = 'organization', scope_id, tags, entry_type = 'learning' } = args;
+        
+        const entryData = {
+          entry_type,
+          title,
+          content
+        };
+        if (scope) entryData.scope = scope;
+        if (scope_id) entryData.scope_id = scope_id;
+        if (tags) entryData.tags = tags;
+        
+        const entry = await apiClient.knowledge.createEntry(entryData);
+        
+        return formatResponse({
+          success: true,
+          message: "Knowledge captured for future reference",
+          entry_id: entry.id,
+          entry_type,
+          title,
+          tip: "This will be searchable via search_knowledge. Good practice!"
+        });
+      }
+      
+      // ========================================
+      // MARKDOWN EXPORT
+      // ========================================
+      
+      if (name === "export_plan_markdown") {
+        const { plan_id, include_descriptions = true, include_status = true } = args;
+        
+        const plan = await apiClient.plans.getPlan(plan_id);
+        const nodes = await apiClient.nodes.getNodes(plan_id);
+        
+        let markdown = `# ${plan.title}\n\n`;
+        if (plan.description) {
+          markdown += `${plan.description}\n\n`;
+        }
+        
+        const statusEmoji = {
+          not_started: '⬜',
+          in_progress: '🔄',
+          completed: '✅',
+          blocked: '🚫',
+          cancelled: '❌'
+        };
+        
+        // Process nodes recursively
+        const processNode = (node, depth = 0) => {
+          const indent = '  '.repeat(depth);
+          const status = include_status ? (statusEmoji[node.status] || '⬜') + ' ' : '';
+          
+          if (node.node_type === 'phase') {
+            markdown += `\n${indent}## ${node.title}\n`;
+            if (include_descriptions && node.description) {
+              markdown += `${indent}${node.description}\n`;
+            }
+          } else if (node.node_type === 'task') {
+            markdown += `${indent}- ${status}${node.title}\n`;
+            if (include_descriptions && node.description) {
+              markdown += `${indent}  _${node.description}_\n`;
+            }
+          } else if (node.node_type === 'milestone') {
+            markdown += `${indent}- 🎯 ${status}**${node.title}**\n`;
+          }
+          
+          if (node.children) {
+            node.children.forEach(child => processNode(child, depth + 1));
+          }
+        };
+        
+        // Start from root's children
+        if (nodes.length > 0 && nodes[0].children) {
+          nodes[0].children.forEach(child => processNode(child, 0));
+        }
+        
+        return formatResponse({
+          plan_id,
+          title: plan.title,
+          markdown,
+          tip: "You can save this to a file or share it as text"
+        });
+      }
+
       // ===== UNIFIED SEARCH TOOL =====
       if (name === "search") {
         const { scope, scope_id, query, filters = {} } = args;
