@@ -95,7 +95,7 @@ Filesystem-friendly plan management:
 
 ### Full CRUD (When You Need More Control)
 
-Plans, nodes, artifacts, logs, search, and more - see [Full Tool Reference](#full-tool-reference).
+Plans, nodes, logs, search, and more - see [Full Tool Reference](#full-tool-reference).
 
 ---
 
@@ -401,7 +401,6 @@ Search across knowledge.
 - `create_node`, `update_node`, `delete_node`, `move_node`
 - `get_plan_structure`, `get_plan_summary`
 - `add_log`, `get_logs`
-- `manage_artifact`, `batch_get_artifacts`
 - `batch_update_nodes`
 - `search` (universal search)
 - `list_organizations`, `get_organization`
