@@ -136,7 +136,7 @@ async function globalSearch(query) {
     }
     
     // Check if response has categorized results (plans, nodes, etc.)
-    const categories = ['plans', 'nodes', 'comments', 'logs', 'artifacts'];
+    const categories = ['plans', 'nodes', 'comments', 'logs'];
     const allResults = [];
     
     categories.forEach(category => {

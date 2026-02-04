@@ -260,101 +260,6 @@ const logs = {
 };
 
 /**
- * Artifact-related API functions
- */
-const artifacts = {
-  /**
-   * Get artifacts for a node
-   * @param {string} planId - Plan ID
-   * @param {string} nodeId - Node ID
-   * @returns {Promise<Array>} - List of artifacts
-   */
-  getArtifacts: async (planId, nodeId) => {
-    const response = await apiClient.get(`/plans/${planId}/nodes/${nodeId}/artifacts`);
-    return response.data;
-  },
-
-  /**
-   * Get a specific artifact by ID
-   * @param {string} planId - Plan ID
-   * @param {string} nodeId - Node ID
-   * @param {string} artifactId - Artifact ID
-   * @returns {Promise<Object>} - Artifact details
-   */
-  getArtifact: async (planId, nodeId, artifactId) => {
-    const response = await apiClient.get(`/plans/${planId}/nodes/${nodeId}/artifacts/${artifactId}`);
-    return response.data;
-  },
-
-  /**
-   * Get the content of an artifact
-   * @param {string} planId - Plan ID
-   * @param {string} nodeId - Node ID
-   * @param {string} artifactId - Artifact ID
-   * @returns {Promise<string>} - Artifact content
-   */
-  getArtifactContent: async (planId, nodeId, artifactId) => {
-    try {
-      // First, get artifact details to check the URL
-      const artifact = await artifacts.getArtifact(planId, nodeId, artifactId);
-      
-      // If the artifact has a URL, fetch the content
-      if (artifact.url) {
-        try {
-          // For local file paths, use fs instead of HTTP request
-          if (artifact.url.startsWith('/') && !artifact.url.startsWith('/api/')) {
-            const fs = require('fs').promises;
-            try {
-              // Read the file directly from the filesystem
-              const content = await fs.readFile(artifact.url, 'utf8');
-              return content;
-            } catch (fsError) {
-              console.error('Error reading artifact file:', fsError);
-              throw new Error(`Cannot read file at ${artifact.url}: ${fsError.message}`);
-            }
-          } else {
-            // For internal URLs (API routes), append to base URL
-            const contentUrl = artifact.url.startsWith('/api/') 
-              ? `${apiClient.defaults.baseURL}${artifact.url}`
-              : artifact.url;
-            
-            const contentResponse = await axios.get(contentUrl, {
-              headers: {
-                'Authorization': apiClient.defaults.headers['Authorization'],
-                'Accept': artifact.content_type || 'text/plain'
-              },
-              responseType: 'text'
-            });
-            
-            return contentResponse.data;
-          }
-        } catch (fetchError) {
-          console.error('Error fetching artifact content:', fetchError);
-          throw new Error(`Failed to fetch artifact content: ${fetchError.message}`);
-        }
-      } else {
-        throw new Error('Artifact does not have a content URL');
-      }
-    } catch (error) {
-      console.error('Error fetching artifact content:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Add an artifact to a node
-   * @param {string} planId - Plan ID
-   * @param {string} nodeId - Node ID
-   * @param {Object} artifactData - Artifact data
-   * @returns {Promise<Object>} - Created artifact
-   */
-  addArtifact: async (planId, nodeId, artifactData) => {
-    const response = await apiClient.post(`/plans/${planId}/nodes/${nodeId}/artifacts`, artifactData);
-    return response.data;
-  }
-};
-
-/**
  * Activity-related API functions
  */
 const activity = {
@@ -746,7 +651,6 @@ module.exports = {
   nodes,
   comments,
   logs,
-  artifacts,
   activity,
   search,
   tokens,

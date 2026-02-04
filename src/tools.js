@@ -259,7 +259,7 @@ function setupTools(server) {
                   type: {
                     type: "string",
                     description: "Filter by type",
-                    enum: ["plan", "node", "phase", "task", "milestone", "artifact", "log"]
+                    enum: ["plan", "node", "phase", "task", "milestone", "log"]
                   },
                   limit: {
                     type: "integer",
@@ -444,7 +444,7 @@ function setupTools(server) {
         },
         {
           name: "get_node_context",
-          description: "Get comprehensive context for a node including children, logs, and artifacts",
+          description: "Get comprehensive context for a node including children and logs",
           inputSchema: {
             type: "object",
             properties: {
@@ -515,69 +515,6 @@ function setupTools(server) {
           }
         },
         
-        // ===== ARTIFACT MANAGEMENT =====
-        {
-          name: "manage_artifact",
-          description: "Add, get, or search for artifacts",
-          inputSchema: {
-            type: "object",
-            properties: {
-              action: {
-                type: "string",
-                description: "Action to perform",
-                enum: ["add", "get", "search", "list"]
-              },
-              plan_id: { type: "string", description: "Plan ID" },
-              node_id: { type: "string", description: "Node ID" },
-              artifact_id: { type: "string", description: "Artifact ID (for 'get' action)" },
-              name: { type: "string", description: "Artifact name (for 'add' or 'search')" },
-              content_type: { type: "string", description: "Content MIME type (for 'add')" },
-              url: { type: "string", description: "URL where artifact can be accessed (for 'add')" },
-              metadata: { type: "object", description: "Additional metadata (for 'add')" }
-            },
-            required: ["action", "plan_id", "node_id"]
-          }
-        },
-        
-        // ===== TASK REFERENCES =====
-        {
-          name: "add_task_reference",
-          description: "Add an external reference to a task (GitHub PR, issue, document, URL, etc.). References link tasks to external resources.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              plan_id: { type: "string", description: "Plan ID" },
-              node_id: { type: "string", description: "Task/Node ID to add reference to" },
-              ref_type: { 
-                type: "string", 
-                description: "Type of reference",
-                enum: ["github_pr", "github_issue", "github_commit", "url", "document", "jira", "linear", "other"]
-              },
-              url: { type: "string", description: "URL of the external resource" },
-              title: { type: "string", description: "Display title for the reference" },
-              status: { 
-                type: "string", 
-                description: "Status of the external resource (optional)",
-                enum: ["open", "closed", "merged", "draft", "in_review"]
-              },
-              external_id: { type: "string", description: "External identifier (e.g., 'owner/repo#123' for GitHub)" }
-            },
-            required: ["plan_id", "node_id", "ref_type", "url", "title"]
-          }
-        },
-        {
-          name: "list_task_references",
-          description: "List all external references for a task",
-          inputSchema: {
-            type: "object",
-            properties: {
-              plan_id: { type: "string", description: "Plan ID" },
-              node_id: { type: "string", description: "Task/Node ID" }
-            },
-            required: ["plan_id", "node_id"]
-          }
-        },
-        
         // ===== BATCH OPERATIONS =====
         {
           name: "batch_update_nodes",
@@ -605,29 +542,6 @@ function setupTools(server) {
               }
             },
             required: ["plan_id", "updates"]
-          }
-        },
-        {
-          name: "batch_get_artifacts",
-          description: "Get multiple artifacts at once",
-          inputSchema: {
-            type: "object",
-            properties: {
-              plan_id: { type: "string", description: "Plan ID" },
-              artifact_requests: {
-                type: "array",
-                description: "List of artifact requests",
-                items: {
-                  type: "object",
-                  properties: {
-                    node_id: { type: "string", description: "Node ID" },
-                    artifact_id: { type: "string", description: "Artifact ID" }
-                  },
-                  required: ["node_id", "artifact_id"]
-                }
-              }
-            },
-            required: ["plan_id", "artifact_requests"]
           }
         },
         
@@ -1806,103 +1720,6 @@ function setupTools(server) {
         return formatResponse(logs);
       }
       
-      // ===== ARTIFACT MANAGEMENT =====
-      if (name === "manage_artifact") {
-        const { action, plan_id, node_id, ...params } = args;
-        
-        switch (action) {
-          case "add":
-            const { name, content_type, url, metadata } = params;
-            const newArtifact = await apiClient.artifacts.addArtifact(plan_id, node_id, {
-              name,
-              content_type,
-              url,
-              metadata
-            });
-            return formatResponse(newArtifact);
-            
-          case "get":
-            const { artifact_id } = params;
-            const artifact = await apiClient.artifacts.getArtifact(plan_id, node_id, artifact_id);
-            const content = await apiClient.artifacts.getArtifactContent(plan_id, node_id, artifact_id);
-            return formatResponse({
-              ...artifact,
-              content
-            });
-            
-          case "search":
-            const { name: searchName } = params;
-            const artifacts = await apiClient.artifacts.getArtifacts(plan_id, node_id);
-            const searchLower = searchName.toLowerCase();
-            const matches = artifacts.filter(a => 
-              a.name.toLowerCase().includes(searchLower)
-            );
-            return formatResponse(matches);
-            
-          case "list":
-            const allArtifacts = await apiClient.artifacts.getArtifacts(plan_id, node_id);
-            return formatResponse(allArtifacts);
-            
-          default:
-            throw new Error(`Unknown artifact action: ${action}`);
-        }
-      }
-      
-      // ===== TASK REFERENCES =====
-      if (name === "add_task_reference") {
-        const { plan_id, node_id, ref_type, url, title, status, external_id } = args;
-        
-        // Use artifacts system with content_type="reference"
-        const artifact = await apiClient.artifacts.addArtifact(plan_id, node_id, {
-          name: title,
-          content_type: "reference",
-          url: url,
-          metadata: {
-            ref_type: ref_type,
-            status: status || null,
-            external_id: external_id || null,
-            added_at: new Date().toISOString()
-          }
-        });
-        
-        return formatResponse({
-          success: true,
-          reference: {
-            id: artifact.id,
-            title: artifact.name,
-            ref_type: ref_type,
-            url: url,
-            status: status || null,
-            external_id: external_id || null
-          },
-          message: `Reference "${title}" added to task`
-        });
-      }
-      
-      if (name === "list_task_references") {
-        const { plan_id, node_id } = args;
-        
-        // Get all artifacts and filter for references
-        const artifacts = await apiClient.artifacts.getArtifacts(plan_id, node_id);
-        const references = artifacts
-          .filter(a => a.content_type === "reference")
-          .map(a => ({
-            id: a.id,
-            title: a.name,
-            ref_type: a.metadata?.ref_type || "other",
-            url: a.url,
-            status: a.metadata?.status || null,
-            external_id: a.metadata?.external_id || null,
-            added_at: a.metadata?.added_at || a.created_at
-          }));
-        
-        return formatResponse({
-          task_id: node_id,
-          references: references,
-          count: references.length
-        });
-      }
-      
       // ===== BATCH OPERATIONS =====
       if (name === "batch_update_nodes") {
         const { plan_id, updates } = args;
@@ -1922,42 +1739,6 @@ function setupTools(server) {
         
         return formatResponse({
           total: updates.length,
-          successful: results.length,
-          failed: errors.length,
-          results,
-          errors
-        });
-      }
-      
-      if (name === "batch_get_artifacts") {
-        const { plan_id, artifact_requests } = args;
-        
-        const results = [];
-        const errors = [];
-        
-        for (const request of artifact_requests) {
-          const { node_id, artifact_id } = request;
-          try {
-            const artifact = await apiClient.artifacts.getArtifact(plan_id, node_id, artifact_id);
-            const content = await apiClient.artifacts.getArtifactContent(plan_id, node_id, artifact_id);
-            results.push({
-              node_id,
-              artifact_id,
-              success: true,
-              data: { ...artifact, content }
-            });
-          } catch (error) {
-            errors.push({
-              node_id,
-              artifact_id,
-              success: false,
-              error: error.message
-            });
-          }
-        }
-        
-        return formatResponse({
-          total: artifact_requests.length,
           successful: results.length,
           failed: errors.length,
           results,

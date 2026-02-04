@@ -49,8 +49,7 @@ async function findContentInPlan(planId, query) {
       nodes: results.filter(r => r.type === 'node'),
       comments: results.filter(r => r.type === 'comment'),
       logs: results.filter(r => r.type === 'log'),
-      artifacts: results.filter(r => r.type === 'artifact'),
-      other: results.filter(r => !['node', 'comment', 'log', 'artifact'].includes(r.type))
+      other: results.filter(r => !['node', 'comment', 'log'].includes(r.type))
     };
     
     // Add summary information
@@ -62,7 +61,6 @@ async function findContentInPlan(planId, query) {
         nodes: organizedResults.nodes.length,
         comments: organizedResults.comments.length,
         logs: organizedResults.logs.length,
-        artifacts: organizedResults.artifacts.length,
         other: organizedResults.other.length
       },
       results: organizedResults
@@ -73,8 +71,8 @@ async function findContentInPlan(planId, query) {
       query,
       planId,
       resultCount: 0,
-      typeBreakdown: { nodes: 0, comments: 0, logs: 0, artifacts: 0, other: 0 },
-      results: { nodes: [], comments: [], logs: [], artifacts: [], other: [] }
+      typeBreakdown: { nodes: 0, comments: 0, logs: 0, other: 0 },
+      results: { nodes: [], comments: [], logs: [], other: [] }
     };
   }
 }
