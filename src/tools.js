@@ -779,6 +779,35 @@ function setupTools(server) {
             },
             required: ["entry_id"]
           }
+        },
+
+        // ===== HELPER / GUIDANCE TOOLS =====
+        {
+          name: "get_started",
+          description: "Get guidance on how to use AgentPlanner effectively. Returns an overview of the system and recommended workflows for common tasks. Call this when you're new to AgentPlanner or need to understand how to approach a task.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              topic: { 
+                type: "string", 
+                enum: ["overview", "planning", "execution", "knowledge", "collaboration"],
+                description: "Specific topic to learn about: 'overview' (system intro), 'planning' (creating plans), 'execution' (working through tasks), 'knowledge' (storing decisions/learnings), 'collaboration' (working with others)",
+                default: "overview"
+              }
+            }
+          }
+        },
+        {
+          name: "understand_context",
+          description: "Get comprehensive context about a plan or goal - its purpose, current state, recent activity, blocked tasks, and relevant knowledge. Use this BEFORE starting work to understand the full situation.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID to understand" },
+              goal_id: { type: "string", description: "Goal ID to understand" },
+              include_knowledge: { type: "boolean", description: "Include relevant knowledge entries", default: true }
+            }
+          }
         }
       ]
     };
@@ -1400,6 +1429,217 @@ function setupTools(server) {
           message: `Knowledge entry ${entry_id} deleted`
         });
       }
+
+      // ===== HELPER TOOLS =====
+      if (name === "get_started") {
+        const { topic = "overview" } = args || {};
+        
+        const guides = {
+          overview: {
+            title: "AgentPlanner Overview",
+            description: "AgentPlanner is a collaborative planning system for AI agents and humans to work together on structured plans.",
+            key_concepts: [
+              "Organizations - Groups of users, goals, and resources",
+              "Goals - High-level objectives with success metrics that plans work toward",
+              "Plans - Hierarchical structures with phases, tasks, and milestones",
+              "Nodes - Individual items in a plan (phases contain tasks and milestones)",
+              "Knowledge - Persistent storage for decisions, context, constraints, and learnings"
+            ],
+            recommended_workflow: [
+              "1. Check list_goals to understand current objectives",
+              "2. Use list_plans to see existing plans",
+              "3. Before working on a plan, use understand_context to get the full picture",
+              "4. Update task statuses as you work (update_node with status)",
+              "5. Store important decisions and learnings using add_knowledge_entry",
+              "6. Check search_knowledge before making decisions to see past context"
+            ],
+            quick_tips: [
+              "Always capture WHY decisions were made, not just WHAT",
+              "Mark tasks 'blocked' with notes when stuck - this helps humans help you",
+              "Use logs to document progress so others can follow your work"
+            ]
+          },
+          planning: {
+            title: "Planning Best Practices",
+            description: "How to create and structure effective plans.",
+            structure: [
+              "Plans have a hierarchical structure: Plan → Phases → Tasks/Milestones",
+              "Phases are major stages or milestones of work",
+              "Tasks are actionable work items within phases",
+              "Milestones mark significant checkpoints"
+            ],
+            tips: [
+              "Break work into phases (major stages)",
+              "Each phase should contain 3-7 tasks (not too granular, not too big)",
+              "Add clear acceptance_criteria to tasks so completion is unambiguous",
+              "Use agent_instructions to guide how AI agents should approach tasks",
+              "Link plans to goals to track how work contributes to objectives"
+            ],
+            tools_to_use: ["create_plan", "create_node", "get_plan_structure", "link_plan_to_goal"]
+          },
+          execution: {
+            title: "Executing Plans",
+            description: "How to work through plans effectively.",
+            workflow: [
+              "1. Use get_plan_structure to see the full plan",
+              "2. Find tasks with status 'not_started' or 'in_progress'",
+              "3. Before starting a task, check search_knowledge for relevant context",
+              "4. Update task status to 'in_progress' when you begin",
+              "5. Add logs to document what you're doing",
+              "6. Mark 'completed' when done, or 'blocked' if stuck"
+            ],
+            status_values: {
+              not_started: "Work hasn't begun",
+              in_progress: "Currently being worked on",
+              completed: "Finished and verified",
+              blocked: "Cannot proceed - add notes explaining why",
+              cancelled: "No longer needed"
+            },
+            tips: [
+              "Check get_plan_summary for current progress and blockers",
+              "When blocked, clearly document what's blocking you",
+              "Store learnings as you go - don't wait until the end"
+            ],
+            tools_to_use: ["get_plan_structure", "update_node", "add_log", "search_knowledge"]
+          },
+          knowledge: {
+            title: "Knowledge Management",
+            description: "How to capture and use organizational knowledge effectively.",
+            entry_types: {
+              decision: "Choices made and their rationale - ALWAYS capture WHY",
+              context: "Background information needed to understand something",
+              constraint: "Rules, limitations, or requirements that must be respected",
+              learning: "Insights gained from experience - what worked, what didn't",
+              reference: "Links to external resources or documentation",
+              note: "General notes that don't fit other categories"
+            },
+            best_practices: [
+              "ALWAYS capture significant decisions with reasoning",
+              "Search knowledge BEFORE making decisions (check for constraints)",
+              "Add learnings when you discover something useful",
+              "Tag entries well for easier retrieval later",
+              "Include enough context that future-you can understand"
+            ],
+            when_to_create_entries: [
+              "When a decision is made (especially if non-obvious)",
+              "When you learn something that might be useful later",
+              "When you discover a constraint or rule",
+              "When you find a useful resource or reference"
+            ],
+            tools_to_use: ["add_knowledge_entry", "search_knowledge", "list_knowledge_entries"]
+          },
+          collaboration: {
+            title: "Collaboration",
+            description: "Working with humans and other agents.",
+            tips: [
+              "Plans can be shared with collaborators (viewer, editor, admin roles)",
+              "Use logs to document progress so others can follow your work",
+              "Knowledge stores are shared within their scope (org/goal/plan)",
+              "When stuck, mark tasks as 'blocked' with clear notes - humans will see this"
+            ],
+            communication: [
+              "Logs are visible to all plan collaborators",
+              "Knowledge entries persist and are searchable by others",
+              "Clear status updates help humans understand where things stand"
+            ],
+            tools_to_use: ["list_organizations", "list_goals", "add_log"]
+          }
+        };
+        
+        return formatResponse(guides[topic] || guides.overview);
+      }
+
+      if (name === "understand_context") {
+        const { plan_id, goal_id, include_knowledge = true } = args;
+        
+        if (!plan_id && !goal_id) {
+          return formatResponse({
+            error: "Provide either plan_id or goal_id to get context"
+          });
+        }
+        
+        const context = {
+          retrieved_at: new Date().toISOString()
+        };
+        
+        // Get goal context
+        if (goal_id) {
+          try {
+            context.goal = await apiClient.goals.getGoal(goal_id);
+            
+            // Get related knowledge if available
+            if (include_knowledge) {
+              try {
+                const knowledge = await apiClient.knowledge.getEntries({ 
+                  scope: 'goal',
+                  scope_id: goal_id,
+                  limit: 10 
+                });
+                context.goal_knowledge = knowledge.entries || [];
+              } catch (e) {
+                // Knowledge fetch failed, continue without it
+              }
+            }
+          } catch (e) {
+            context.goal_error = e.message;
+          }
+        }
+        
+        // Get plan context
+        if (plan_id) {
+          try {
+            context.plan = await apiClient.plans.getPlan(plan_id);
+            
+            const nodes = await apiClient.nodes.getNodes(plan_id);
+            context.statistics = calculatePlanStatistics(nodes);
+            context.progress_percentage = context.statistics.total > 0 
+              ? ((context.statistics.status_counts.completed / context.statistics.total) * 100).toFixed(1) + '%'
+              : '0%';
+            
+            // Get blocked and in-progress tasks for attention
+            const flatNodes = flattenNodes(nodes);
+            context.needs_attention = {
+              blocked: flatNodes.filter(n => n.status === 'blocked').map(n => ({ 
+                id: n.id, 
+                title: n.title,
+                type: n.node_type
+              })),
+              in_progress: flatNodes.filter(n => n.status === 'in_progress').map(n => ({ 
+                id: n.id, 
+                title: n.title,
+                type: n.node_type
+              }))
+            };
+            
+            // Get recent activity
+            try {
+              const activity = await apiClient.activity.getPlanActivity(plan_id);
+              context.recent_activity = (activity || []).slice(0, 5);
+            } catch (e) {
+              // Activity fetch failed, continue without it
+            }
+            
+            // Get related knowledge if available
+            if (include_knowledge) {
+              try {
+                const knowledge = await apiClient.knowledge.getEntries({ 
+                  scope: 'plan',
+                  scope_id: plan_id,
+                  limit: 10 
+                });
+                context.plan_knowledge = knowledge.entries || [];
+              } catch (e) {
+                // Knowledge fetch failed, continue without it
+              }
+            }
+          } catch (e) {
+            context.plan_error = e.message;
+          }
+        }
+        
+        context.recommendation = "Review the statistics, needs_attention, and knowledge entries before starting work.";
+        return formatResponse(context);
+      }
       
       // Tool not found
       throw new Error(`Unknown tool: ${name}`);
@@ -1529,6 +1769,26 @@ function buildNodeHierarchy(nodes, includeDetails = false) {
   sortNodes(rootNodes);
   
   return rootNodes;
+}
+
+/**
+ * Flatten a hierarchical node structure into a flat array
+ */
+function flattenNodes(nodes) {
+  const flat = [];
+  
+  const processNode = (node) => {
+    flat.push(node);
+    if (node.children && node.children.length > 0) {
+      node.children.forEach(processNode);
+    }
+  };
+  
+  if (Array.isArray(nodes)) {
+    nodes.forEach(processNode);
+  }
+  
+  return flat;
 }
 
 /**
