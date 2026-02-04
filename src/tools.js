@@ -206,6 +206,25 @@ function setupTools(server) {
             required: ["plan_id"]
           }
         },
+        {
+          name: "import_plan_markdown",
+          description: "Create a new plan from markdown text. Parses headings as phases and list items as tasks. Great for converting text plans into structured AgentPlanner plans.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              markdown: { 
+                type: "string", 
+                description: "Markdown text to parse. Use # for title, ## for phases, - for tasks" 
+              },
+              title: { 
+                type: "string", 
+                description: "Plan title (optional - extracted from first # heading if not provided)" 
+              },
+              goal_id: { type: "string", description: "Optionally link to a goal" }
+            },
+            required: ["markdown"]
+          }
+        },
 
         // ===== UNIFIED SEARCH TOOL =====
         {
@@ -1412,6 +1431,143 @@ function setupTools(server) {
           title: plan.title,
           markdown,
           tip: "You can save this to a file or share it as text"
+        });
+      }
+      
+      if (name === "import_plan_markdown") {
+        const { markdown, title: providedTitle, goal_id } = args;
+        
+        // Parse markdown
+        const lines = markdown.split('\n').map(l => l.trim()).filter(l => l);
+        
+        let planTitle = providedTitle;
+        let planDescription = '';
+        const phases = [];
+        let currentPhase = null;
+        
+        for (const line of lines) {
+          // H1 = Plan title
+          if (line.startsWith('# ')) {
+            if (!planTitle) {
+              planTitle = line.slice(2).trim();
+            }
+          }
+          // H2 = Phase
+          else if (line.startsWith('## ')) {
+            const phaseTitle = line.slice(3).trim();
+            currentPhase = { title: phaseTitle, tasks: [] };
+            phases.push(currentPhase);
+          }
+          // List item = Task (with optional status emoji)
+          else if (line.startsWith('- ') || line.startsWith('* ')) {
+            let taskTitle = line.slice(2).trim();
+            let taskStatus = 'not_started';
+            
+            // Parse status from emoji
+            if (taskTitle.startsWith('✅')) {
+              taskStatus = 'completed';
+              taskTitle = taskTitle.slice(1).trim();
+            } else if (taskTitle.startsWith('🔄')) {
+              taskStatus = 'in_progress';
+              taskTitle = taskTitle.slice(1).trim();
+            } else if (taskTitle.startsWith('🚫')) {
+              taskStatus = 'blocked';
+              taskTitle = taskTitle.slice(1).trim();
+            } else if (taskTitle.startsWith('⬜')) {
+              taskTitle = taskTitle.slice(1).trim();
+            }
+            
+            // Skip milestone markers for now
+            if (taskTitle.startsWith('🎯')) {
+              taskTitle = taskTitle.slice(1).trim().replace(/\*\*/g, '');
+            }
+            
+            if (currentPhase) {
+              currentPhase.tasks.push({ title: taskTitle, status: taskStatus });
+            } else {
+              // No phase yet, create a default one
+              currentPhase = { title: 'Tasks', tasks: [{ title: taskTitle, status: taskStatus }] };
+              phases.push(currentPhase);
+            }
+          }
+          // Regular text after title = description
+          else if (planTitle && !currentPhase && !line.startsWith('#')) {
+            planDescription += (planDescription ? ' ' : '') + line;
+          }
+        }
+        
+        if (!planTitle) {
+          return formatResponse({
+            error: "Could not extract plan title",
+            suggestion: "Add a '# Title' heading at the start, or provide the 'title' parameter"
+          });
+        }
+        
+        if (phases.length === 0) {
+          return formatResponse({
+            error: "No phases or tasks found",
+            suggestion: "Use '## Phase Name' for phases and '- Task name' for tasks"
+          });
+        }
+        
+        // Create the plan
+        const planData = { title: planTitle };
+        if (planDescription) planData.description = planDescription;
+        
+        const plan = await apiClient.plans.createPlan(planData);
+        
+        // Get root node
+        const nodes = await apiClient.nodes.getNodes(plan.id);
+        const rootNode = nodes.find(n => n.node_type === 'root') || nodes[0];
+        
+        // Create phases and tasks
+        const createdPhases = [];
+        const createdTasks = [];
+        
+        for (let i = 0; i < phases.length; i++) {
+          const phaseData = phases[i];
+          
+          const phase = await apiClient.nodes.createNode(plan.id, {
+            parent_id: rootNode.id,
+            node_type: 'phase',
+            title: phaseData.title,
+            status: 'not_started',
+            order_index: i
+          });
+          createdPhases.push({ id: phase.id, title: phase.title });
+          
+          for (let j = 0; j < phaseData.tasks.length; j++) {
+            const taskData = phaseData.tasks[j];
+            
+            const task = await apiClient.nodes.createNode(plan.id, {
+              parent_id: phase.id,
+              node_type: 'task',
+              title: taskData.title,
+              status: taskData.status,
+              order_index: j
+            });
+            createdTasks.push({ id: task.id, title: task.title, status: task.status });
+          }
+        }
+        
+        // Link to goal if provided
+        if (goal_id) {
+          try {
+            await apiClient.goals.linkPlan(goal_id, plan.id);
+          } catch (e) {}
+        }
+        
+        return formatResponse({
+          success: true,
+          message: `Plan "${planTitle}" created from markdown with ${phases.length} phases and ${createdTasks.length} tasks`,
+          plan_id: plan.id,
+          plan_url: `https://www.agentplanner.io/app/plans/${plan.id}`,
+          phases: createdPhases,
+          tasks: createdTasks,
+          next_steps: [
+            "Use get_context to review the imported plan",
+            "Use quick_status to update task progress"
+          ]
         });
       }
 
