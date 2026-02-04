@@ -26,23 +26,28 @@ const apiClient = axios.create({
   }
 });
 
-// Log API requests in debug mode
-apiClient.interceptors.request.use(request => {
-  console.error(`API Request: ${request.method.toUpperCase()} ${request.url}`);
-  return request;
-});
+// Log API requests only in development mode
+if (process.env.NODE_ENV === 'development') {
+  apiClient.interceptors.request.use(request => {
+    console.error(`API Request: ${request.method.toUpperCase()} ${request.url}`);
+    return request;
+  });
+}
 
-// Log API responses in debug mode
+// Handle API responses - log details only in development, always handle auth errors helpfully
 apiClient.interceptors.response.use(
   response => {
-    console.error(`API Response: ${response.status} ${response.statusText}`);
+    if (process.env.NODE_ENV === 'development') {
+      console.error(`API Response: ${response.status} ${response.statusText}`);
+    }
     return response;
   },
   error => {
+    // Always log auth errors helpfully (but not the token itself)
     if (error.response && error.response.status === 401) {
-      console.error('API Error: Authentication failed (401). Please check that your USER_API_TOKEN is correct, valid, and not revoked.');
-      console.error('If you are still using the old API_TOKEN, please generate a USER_API_TOKEN from the agent-planner UI.');
-    } else {
+      console.error('API Error: Authentication failed (401). Please check that your USER_API_TOKEN is correct and not revoked.');
+    } else if (process.env.NODE_ENV === 'development') {
+      // Only log other errors in development
       console.error('API Error:', error.response ? error.response.data : error.message);
     }
     return Promise.reject(error);

@@ -156,9 +156,11 @@ async function globalSearch(query) {
       return allResults;
     }
     
-    // Generic handler for any object with arrays
-    Object.keys(response).forEach(key => {
-      if (Array.isArray(response[key]) && key !== 'results') {
+    // Generic handler for any object with arrays - log warning about unexpected format
+    const unknownKeys = Object.keys(response).filter(key => Array.isArray(response[key]) && key !== 'results');
+    if (unknownKeys.length > 0) {
+      console.error(`[search-wrapper] Warning: Unexpected response format with keys: ${unknownKeys.join(', ')}. Normalizing results.`);
+      unknownKeys.forEach(key => {
         response[key].forEach(item => {
           allResults.push({
             ...item,
@@ -167,8 +169,12 @@ async function globalSearch(query) {
             source: 'global_search'
           });
         });
-      }
-    });
+      });
+    }
+    
+    if (allResults.length === 0 && Object.keys(response).length > 0) {
+      console.error(`[search-wrapper] Warning: Could not extract results from response. Keys: ${Object.keys(response).join(', ')}`);
+    }
     
     return allResults;
   } catch (error) {
