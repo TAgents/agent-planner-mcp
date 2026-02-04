@@ -1,324 +1,461 @@
-# Planning System MCP Server
+# AgentPlanner MCP Server
 
-A Model Context Protocol (MCP) server interface for the Planning System API, enabling AI agents to interact with planning data through powerful, efficient tools.
+A Model Context Protocol (MCP) server for [AgentPlanner.io](https://agentplanner.io) - enabling AI agents to create, manage, and execute structured plans.
 
-## Overview
+## 🚀 Quick Start
 
-This MCP server connects to the Planning System API, providing AI agents with comprehensive planning capabilities through a clean, structured interface. All interactions use JSON responses for easy parsing and processing.
+### For OpenClaw Agents
 
-## ✨ Key Features
+Add to your OpenClaw config:
 
-### Core Capabilities
-- **Full CRUD Operations**: Create, read, update, and delete plans, nodes, and artifacts
-- **Unified Search**: Single powerful search tool for all contexts (global, plans, nodes)
-- **Batch Operations**: Update multiple nodes or retrieve multiple artifacts efficiently
-- **Rich Context**: Get comprehensive node context including ancestry, children, logs, and artifacts
-- **Structured Responses**: Clean JSON data for easy agent processing
-
-### Available Tools
-
-#### Planning & Search
-- `search` - Universal search across all scopes with filters
-- `create_plan` - Create new plans
-- `update_plan` - Update plan properties
-- `delete_plan` - Delete entire plans
-- `get_plan_structure` - Get hierarchical plan structure
-- `get_plan_summary` - Get comprehensive statistics and summary
-
-#### Node Management
-- `create_node` - Create phases, tasks, or milestones
-- `update_node` - Update any node properties
-- `delete_node` - Delete nodes and their children
-- `move_node` - Reorder or reparent nodes
-- `get_node_context` - Get rich contextual information
-- `get_node_ancestry` - Get path from root to node
-- `batch_update_nodes` - Update multiple nodes at once
-
-#### Collaboration & Tracking
-- `add_log` - Add log entries (including comments, progress, reasoning, etc.)
-- `get_logs` - Retrieve filtered log entries
-- `manage_artifact` - Add, get, search, or list artifacts
-- `batch_get_artifacts` - Retrieve multiple artifacts efficiently
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 16+
-- npm or yarn
-- Access to a running Planning System API
-- API token for authentication
-
-### Quick Setup (Recommended)
-
-1. Install dependencies
-```bash
-npm install
+```yaml
+mcp:
+  servers:
+    agentplanner:
+      command: npx
+      args: ["-y", "@tagents/agent-planner-mcp"]
+      env:
+        API_URL: https://api.agentplanner.io
+        USER_API_TOKEN: your_token_here
 ```
 
-2. Run the automated setup wizard
-```bash
-npm run setup
-```
+Get your API token at: https://www.agentplanner.io/app/settings
 
-The wizard will:
-- Check API server connectivity
-- Guide you through creating an API token in the UI
-- Create your `.env` file
-- Detect and update your Claude Desktop config
-- Test the connection
+### For Claude Desktop
 
-That's it! Restart Claude Desktop and you're ready to go.
-
-### Manual Installation (Advanced)
-
-If you prefer manual setup or the wizard doesn't work for your setup:
-
-1. Clone the repository
-```bash
-git clone https://github.com/talkingagents/agent-planner-mcp.git
-cd agent-planner-mcp
-```
-
-2. Install dependencies
-```bash
-npm install
-```
-
-3. Create an API token:
-   - Open http://localhost:3001/app/settings in your browser
-   - Navigate to "API Tokens" section
-   - Click "Create MCP Token"
-   - Copy the generated token
-
-4. Create `.env` file:
-```bash
-cp .env.example .env
-```
-
-Edit the `.env` file:
-```
-API_URL=http://localhost:3000
-USER_API_TOKEN=your_api_token_here
-MCP_SERVER_NAME=planning-system
-MCP_SERVER_VERSION=0.2.0
-NODE_ENV=production
-```
-
-5. Configure Claude Desktop manually (see "Using with Claude Desktop" section below)
-
-6. Start the server
-```bash
-npm start
-```
-
-## Using with Claude Desktop
-
-### Option 1: Using npx (Recommended - Simplest Setup)
-
-Add to your `claude_desktop_config.json`:
+Add to `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "planning-system": {
+    "agentplanner": {
       "command": "npx",
-      "args": [
-        "-y",
-        "agent-planner-mcp"
-      ],
+      "args": ["-y", "@tagents/agent-planner-mcp"],
       "env": {
         "API_URL": "https://api.agentplanner.io",
-        "USER_API_TOKEN": "your_api_token_here"
+        "USER_API_TOKEN": "your_token_here"
       }
     }
   }
 }
 ```
 
-**Benefits:**
-- No need to clone the repository
-- Always uses the latest published version
-- Simplest configuration
+---
 
-**For local development**, use `http://localhost:3000` instead:
-```json
-"API_URL": "http://localhost:3000"
+## 🎯 Tool Overview
+
+### Quick Actions (Start Here!)
+
+Low-friction tools for common operations:
+
+| Tool | Purpose | Example |
+|------|---------|---------|
+| `quick_plan` | Create plan + tasks in one call | "Create a plan for the product launch with these tasks..." |
+| `quick_task` | Add a single task | "Add a task to review the PR" |
+| `quick_status` | Update task status | "Mark task X as completed" |
+| `quick_log` | Log progress | "Note that I've finished the API integration" |
+
+### Context Loading
+
+Get everything you need before starting work:
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| `get_context` | Full context for plan/goal | **Always call first** before working on a plan |
+| `get_my_tasks` | Tasks needing attention | Heartbeat check-ins, "what should I work on?" |
+| `get_started` | Usage guidance | When you're new or unsure how to proceed |
+
+### Knowledge Management
+
+Build persistent memory across sessions:
+
+| Tool | Purpose |
+|------|---------|
+| `add_learning` | Capture insights, decisions, context |
+| `search_knowledge` | Find relevant past knowledge |
+| `add_knowledge_entry` | Full knowledge entry with metadata |
+
+### Markdown Import/Export
+
+Filesystem-friendly plan management:
+
+| Tool | Purpose |
+|------|---------|
+| `export_plan_markdown` | Export plan as markdown text |
+| `import_plan_markdown` | Create plan from markdown |
+
+### Goals & Organizations
+
+| Tool | Purpose |
+|------|---------|
+| `list_goals` | See all objectives |
+| `get_goal` | Goal details with linked plans |
+| `link_plan_to_goal` | Connect plan to objective |
+| `list_organizations` | See your organizations |
+
+### Full CRUD (When You Need More Control)
+
+Plans, nodes, artifacts, logs, search, and more - see [Full Tool Reference](#full-tool-reference).
+
+---
+
+## 📖 Recommended Workflows
+
+### Starting Work on a Plan
+
+```
+1. get_context(plan_id: "...")
+   → See status, blocked tasks, recent activity, knowledge
+
+2. Review needs_attention.blocked first
+   → Unblock or escalate blocked tasks
+
+3. Pick a task from needs_attention.in_progress or ready_to_start
+
+4. quick_status(task_id, plan_id, "in_progress")
+   → Mark it as started
+
+5. Do the work...
+
+6. quick_log(task_id, plan_id, "What I did...")
+   → Document progress
+
+7. quick_status(task_id, plan_id, "completed")
+   → Mark done, see next_tasks in response
 ```
 
-### Option 2: Using Local Installation
+### Creating a New Plan
 
-If you prefer to run from a local clone:
+```
+1. quick_plan(
+     title: "My Plan",
+     tasks: ["Task 1", "Task 2", "Task 3"],
+     goal_id: "optional-goal-id"
+   )
+   → Returns plan_id, task_ids, plan_url
 
-```json
+2. Add more structure if needed with create_node
+```
+
+### Capturing Knowledge
+
+```
+# After making a decision
+add_learning(
+  title: "Chose PostgreSQL over MongoDB",
+  content: "We decided on PostgreSQL because...",
+  entry_type: "decision",
+  tags: ["database", "architecture"]
+)
+
+# Before making a decision
+search_knowledge(query: "database decisions")
+→ Check what's already been decided
+```
+
+### Importing from Markdown
+
+```
+import_plan_markdown(markdown: """
+# Product Launch Plan
+
+## Phase 1: Preparation
+- Create landing page
+- Write documentation
+- ✅ Set up analytics
+
+## Phase 2: Launch
+- Send announcement email
+- Post on social media
+""")
+→ Creates structured plan with phases and tasks
+```
+
+---
+
+## 🧠 Best Practices for Agents
+
+### 1. Always Load Context First
+
+Before working on any plan, call `get_context`. This gives you:
+- Current progress and statistics
+- Blocked tasks that need attention
+- Recent activity
+- Relevant knowledge
+
+### 2. Log As You Work
+
+Use `quick_log` to document:
+- What you're doing
+- Decisions made
+- Blockers encountered
+- Lessons learned
+
+This helps humans follow your work and helps future agents understand what happened.
+
+### 3. Capture Knowledge
+
+When you learn something important, store it:
+- **Decisions**: Why something was chosen
+- **Constraints**: Rules that must be followed
+- **Learnings**: What worked or didn't
+- **Context**: Background information
+
+Use `add_learning` or `add_knowledge_entry` - this persists beyond your session!
+
+### 4. Handle Blockers Gracefully
+
+When stuck:
+```
+quick_status(task_id, plan_id, "blocked", note: "Need API credentials from admin")
+```
+
+This:
+- Marks the task so humans see it
+- Logs the reason
+- Lets you move to other tasks
+
+### 5. Check Before Deciding
+
+Before making significant decisions:
+```
+search_knowledge(query: "relevant topic")
+```
+
+Past decisions, constraints, or context might already exist.
+
+---
+
+## 🔧 Full Tool Reference
+
+### Quick Actions
+
+#### `quick_plan`
+Create a plan with tasks in one call.
+
+```javascript
 {
-  "mcpServers": {
-    "planning-system": {
-      "command": "node",
-      "args": [
-        "/path/to/agent-planner-mcp/src/index.js"
-      ],
-      "env": {
-        "API_URL": "https://api.agentplanner.io",
-        "USER_API_TOKEN": "your_api_token_here"
-      }
-    }
-  }
+  title: "Plan Title",           // Required
+  description: "Description",    // Optional
+  tasks: ["Task 1", "Task 2"],  // Required - list of task titles
+  goal_id: "goal-uuid"          // Optional - link to goal
+}
+// Returns: plan_id, plan_url, task_ids, tasks[]
+```
+
+#### `quick_task`
+Add a single task to a plan.
+
+```javascript
+{
+  plan_id: "plan-uuid",         // Required
+  title: "Task Title",          // Required
+  description: "Details",       // Optional
+  phase_id: "phase-uuid",       // Optional - uses first phase if not provided
+  agent_instructions: "..."     // Optional - guidance for agents
+}
+// Returns: task_id, task_url
+```
+
+#### `quick_status`
+Update task status.
+
+```javascript
+{
+  task_id: "task-uuid",         // Required
+  plan_id: "plan-uuid",         // Required
+  status: "completed",          // Required: not_started|in_progress|completed|blocked
+  note: "Optional note"         // Optional - auto-logged if provided
+}
+// Returns: success, next_tasks (for completed), suggestion
+```
+
+#### `quick_log`
+Add progress note.
+
+```javascript
+{
+  task_id: "task-uuid",         // Required
+  plan_id: "plan-uuid",         // Required
+  message: "What happened",     // Required
+  log_type: "progress"          // Optional: progress|decision|blocker|completion
 }
 ```
 
-Then restart Claude Desktop to load the planning tools.
+### Context Loading
 
-## Example Usage
-
-### Search Examples
-
-```javascript
-// Global search
-search({ 
-  scope: "global", 
-  query: "API integration",
-  filters: { type: "task", status: "in_progress" }
-})
-
-// Search within a specific plan
-search({ 
-  scope: "plan", 
-  scope_id: "plan-123",
-  query: "testing"
-})
-```
-
-### Plan Management
+#### `get_context`
+Load everything for a plan or goal.
 
 ```javascript
-// Create a plan with initial structure
-create_plan({ 
-  title: "Product Launch Q1 2025",
-  description: "Complete product launch plan",
-  status: "active"
-})
-
-// Add nodes to the plan
-create_node({
-  plan_id: "plan-123",
-  node_type: "phase",
-  title: "Market Research",
-  description: "Initial market analysis and competitor research"
-})
+{
+  plan_id: "plan-uuid",         // Optional
+  goal_id: "goal-uuid",         // Optional
+  include_knowledge: true       // Default: true
+}
+// Returns: plan, statistics, progress_percentage, needs_attention, 
+//          recent_activity, plan_knowledge, recommendation
 ```
 
-### Batch Operations
+#### `get_my_tasks`
+Get tasks needing attention.
 
 ```javascript
-// Update multiple nodes efficiently
-batch_update_nodes({
-  plan_id: "plan-123",
-  updates: [
-    { node_id: "node-1", status: "completed" },
-    { node_id: "node-2", status: "in_progress" },
-    { node_id: "node-3", description: "Updated requirements" }
-  ]
-})
-
-// Get multiple artifacts at once
-batch_get_artifacts({
-  plan_id: "plan-123",
-  artifact_requests: [
-    { node_id: "node-1", artifact_id: "art-1" },
-    { node_id: "node-2", artifact_id: "art-2" }
-  ]
-})
+{
+  plan_id: "plan-uuid",         // Optional - checks all plans if not provided
+  status: ["blocked", "in_progress"]  // Default
+}
+// Returns: needs_attention[], ready_to_start[], summary
 ```
 
-### Rich Context
+#### `get_started`
+Get usage guidance.
 
 ```javascript
-// Get comprehensive node information
-get_node_context({
-  plan_id: "plan-123",
-  node_id: "node-456"
-})
-// Returns: node details, children, logs, artifacts, plan info
-
-// Track node ancestry
-get_node_ancestry({
-  plan_id: "plan-123",
-  node_id: "node-456"
-})
-// Returns: path from root to node
+{
+  topic: "overview"  // overview|planning|execution|knowledge|collaboration
+}
+// Returns: guide with tips, workflows, recommended tools
 ```
 
-## Project Structure
+### Knowledge
 
-```
-src/
-├── index.js              # Main entry point
-├── tools.js              # Tool implementations
-├── api-client.js         # API client with axios
-└── tools/
-    └── search-wrapper.js # Search functionality wrapper
-```
-
-## Development
-
-### Running in Development Mode
-
-```bash
-npm run dev  # Auto-restart on changes
-```
-
-### Environment Variables
-
-- `API_URL` - Planning System API URL
-- `USER_API_TOKEN` - Authentication token
-- `MCP_SERVER_NAME` - Server name (default: planning-system-mcp)
-- `MCP_SERVER_VERSION` - Server version (default: 0.2.0)
-- `NODE_ENV` - Environment (development/production)
-
-### Testing Tools
+#### `add_learning`
+Capture knowledge.
 
 ```javascript
-// Test search functionality
-search({ scope: "global", query: "test" })
-
-// Test node operations
-create_node({ plan_id: "...", node_type: "task", title: "Test" })
-update_node({ plan_id: "...", node_id: "...", status: "completed" })
-delete_node({ plan_id: "...", node_id: "..." })
-
-// Test batch operations
-batch_update_nodes({ plan_id: "...", updates: [...] })
+{
+  title: "Brief title",         // Required
+  content: "Full details",      // Required
+  entry_type: "learning",       // Optional: learning|decision|context|constraint
+  scope: "organization",        // Optional: organization|goal|plan
+  scope_id: "uuid",            // Optional
+  tags: ["tag1", "tag2"]       // Optional
+}
 ```
 
-## Troubleshooting
+#### `search_knowledge`
+Search across knowledge.
 
-### Common Issues
-
-- **Connection errors**: Ensure the Planning System API is running
-- **Authentication errors**: Verify your USER_API_TOKEN is valid
-- **Tool errors**: Check error messages in console output
-
-### Debug Mode
-
-Enable verbose logging:
-```bash
-NODE_ENV=development npm start
+```javascript
+{
+  query: "search terms",        // Required
+  scope: "plan",               // Optional
+  scope_id: "uuid",            // Optional
+  entry_types: ["decision"],   // Optional
+  limit: 10                    // Optional
+}
 ```
 
-## Performance Tips
+### Markdown
 
-1. Use batch operations when updating multiple items
-2. Use appropriate search scopes to minimize API calls
-3. Cache plan structures when making multiple operations
-4. Apply filters to limit result sets
+#### `export_plan_markdown`
+```javascript
+{
+  plan_id: "uuid",
+  include_descriptions: true,
+  include_status: true
+}
+// Returns: markdown string
+```
+
+#### `import_plan_markdown`
+```javascript
+{
+  markdown: "# Title\n## Phase\n- Task",
+  title: "Override title",      // Optional
+  goal_id: "uuid"              // Optional
+}
+// Returns: plan_id, phases[], tasks[]
+```
+
+### Goals
+
+#### `list_goals`
+```javascript
+{
+  organization_id: "uuid",     // Optional
+  status: "active"             // Optional: active|achieved|at_risk|abandoned
+}
+```
+
+#### `get_goal`
+```javascript
+{
+  goal_id: "uuid"
+}
+// Returns: goal with success_metrics, linked_plans
+```
+
+#### `link_plan_to_goal`
+```javascript
+{
+  goal_id: "uuid",
+  plan_id: "uuid"
+}
+```
+
+### Full CRUD Tools
+
+- `list_plans`, `create_plan`, `update_plan`, `delete_plan`
+- `create_node`, `update_node`, `delete_node`, `move_node`
+- `get_plan_structure`, `get_plan_summary`
+- `add_log`, `get_logs`
+- `manage_artifact`, `batch_get_artifacts`
+- `batch_update_nodes`
+- `search` (universal search)
+- `list_organizations`, `get_organization`
+
+---
+
+## 🔌 Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `API_URL` | AgentPlanner API URL | https://api.agentplanner.io |
+| `USER_API_TOKEN` | Your API token | Required |
+| `NODE_ENV` | Environment | production |
+
+---
+
+## 📝 Status Values
+
+| Status | Meaning |
+|--------|---------|
+| `not_started` | Work hasn't begun |
+| `in_progress` | Currently being worked on |
+| `completed` | Finished and verified |
+| `blocked` | Cannot proceed (add note explaining why!) |
+| `cancelled` | No longer needed |
+
+---
+
+## 🐛 Troubleshooting
+
+### "Authentication failed"
+- Check your `USER_API_TOKEN` is valid
+- Get a new token at https://www.agentplanner.io/app/settings
+
+### "Connection refused"
+- Verify `API_URL` is correct
+- For local dev: `http://localhost:3000`
+- For production: `https://api.agentplanner.io`
+
+### "Tool not found"
+- Make sure you're using the correct tool name
+- Check this README for available tools
+
+---
+
+## 📚 Links
+
+- **App**: https://www.agentplanner.io
+- **API Docs**: https://api.agentplanner.io/api-docs/
+- **GitHub**: https://github.com/TAgents/agent-planner-mcp
+- **npm**: https://www.npmjs.com/package/@tagents/agent-planner-mcp
+
+---
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Support
-
-- Report bugs via GitHub Issues
-- See [PDR.md](./PDR.md) for technical design details
-- Check [CHANGELOG.md](./CHANGELOG.md) for version history
+MIT
