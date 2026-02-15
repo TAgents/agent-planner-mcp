@@ -564,7 +564,7 @@ const goals = {
 const knowledge = {
   /**
    * List knowledge entries with optional filters
-   * GET /api/knowledge
+   * GET /knowledge
    */
   listEntries: async (storeIdOrFilters, filters = {}) => {
     const params = new URLSearchParams();
@@ -583,7 +583,7 @@ const knowledge = {
       if (f.limit) params.append('limit', f.limit);
       if (f.offset) params.append('offset', f.offset);
     }
-    const response = await apiClient.get(`/api/knowledge?${params.toString()}`);
+    const response = await apiClient.get(`/knowledge?${params.toString()}`);
     return response.data;
   },
 
@@ -596,46 +596,46 @@ const knowledge = {
 
   /**
    * Get a single knowledge entry
-   * GET /api/knowledge/:id
+   * GET /knowledge/:id
    */
   getEntry: async (entryId) => {
-    const response = await apiClient.get(`/api/knowledge/${entryId}`);
+    const response = await apiClient.get(`/knowledge/${entryId}`);
     return response.data;
   },
 
   /**
    * Create a knowledge entry
-   * POST /api/knowledge
+   * POST /knowledge
    */
   createEntry: async (data) => {
-    const response = await apiClient.post('/api/knowledge', data);
+    const response = await apiClient.post('/knowledge', data);
     return response.data;
   },
 
   /**
    * Update a knowledge entry
-   * PUT /api/knowledge/:id
+   * PUT /knowledge/:id
    */
   updateEntry: async (entryId, data) => {
-    const response = await apiClient.put(`/api/knowledge/${entryId}`, data);
+    const response = await apiClient.put(`/knowledge/${entryId}`, data);
     return response.data;
   },
 
   /**
    * Delete a knowledge entry
-   * DELETE /api/knowledge/:id
+   * DELETE /knowledge/:id
    */
   deleteEntry: async (entryId) => {
-    const response = await apiClient.delete(`/api/knowledge/${entryId}`);
+    const response = await apiClient.delete(`/knowledge/${entryId}`);
     return response.data;
   },
 
   /**
    * Semantic search across knowledge entries
-   * POST /api/knowledge/search
+   * POST /knowledge/search
    */
   search: async (data) => {
-    const response = await apiClient.post('/api/knowledge/search', data);
+    const response = await apiClient.post('/knowledge/search', data);
     return response.data;
   }
 };
