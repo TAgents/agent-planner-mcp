@@ -548,14 +548,14 @@ function setupTools(server) {
         // ===== PLAN STRUCTURE & SUMMARY =====
         {
           name: "get_plan_structure",
-          description: "Get the complete hierarchical structure of a plan",
+          description: "Get the hierarchical structure of a plan with minimal fields (id, parent_id, node_type, title, status, order_index). Use get_node_context for detailed information about specific nodes.",
           inputSchema: {
             type: "object",
             properties: {
               plan_id: { type: "string", description: "Plan ID" },
-              include_details: { 
-                type: "boolean", 
-                description: "Include full node details",
+              include_details: {
+                type: "boolean",
+                description: "Include full node details (description, context, agent_instructions, etc.). Default is false for efficient context usage.",
                 default: false
               }
             },
@@ -1749,10 +1749,13 @@ function setupTools(server) {
       // ===== PLAN STRUCTURE & SUMMARY =====
       if (name === "get_plan_structure") {
         const { plan_id, include_details = false } = args;
-        
+
         const plan = await apiClient.plans.getPlan(plan_id);
-        const nodes = await apiClient.nodes.getNodes(plan_id);
-        
+        // Pass include_details to the API - defaults to minimal fields
+        const nodes = await apiClient.nodes.getNodes(plan_id, {
+          include_details: include_details
+        });
+
         // The API already returns a tree structure, not a flat list
         // If it's already hierarchical, use it directly
         let structure;
@@ -1763,7 +1766,7 @@ function setupTools(server) {
           // Flat list - build hierarchy
           structure = buildNodeHierarchy(nodes, include_details);
         }
-        
+
         return formatResponse({
           plan: {
             id: plan.id,

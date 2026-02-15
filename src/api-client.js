@@ -139,10 +139,18 @@ const nodes = {
   /**
    * Get nodes for a plan
    * @param {string} planId - Plan ID
+   * @param {Object} options - Optional query parameters
+   * @param {boolean} options.include_details - Include full node details (default: false)
    * @returns {Promise<Array>} - List of nodes
    */
-  getNodes: async (planId) => {
-    const response = await apiClient.get(`/plans/${planId}/nodes`);
+  getNodes: async (planId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.include_details) {
+      params.append('include_details', 'true');
+    }
+
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    const response = await apiClient.get(`/plans/${planId}/nodes${queryString}`);
     return response.data;
   },
 
