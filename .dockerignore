@@ -1,0 +1,44 @@
+# Node modules (will be installed in container)
+node_modules/
+npm-debug.log
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+
+# Test files
+test/
+tests/
+*.test.js
+test-*.js
+coverage/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Examples and templates
+examples/
+claude-code/
+
+# CI/CD
+.github/
+
+# Logs
+logs/
+*.log
+
+# MacOS
+.DS_Store
