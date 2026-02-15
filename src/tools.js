@@ -1129,7 +1129,7 @@ function setupTools(server) {
         // Get goal context
         if (goal_id) {
           try {
-            context.goal = await apiClient.goals.getGoal(goal_id);
+            context.goal = await apiClient.goals.get(goal_id);
             if (include_knowledge) {
               try {
                 const knowledge = await apiClient.knowledge.getEntries({ 
@@ -1918,15 +1918,8 @@ function setupTools(server) {
       
       if (name === "list_knowledge_entries") {
         const { scope, scope_id, entry_type, tags, limit = 50 } = args;
-        
-        // First get/create the store for this scope
-        const stores = await apiClient.knowledge.listStores({ scope, scope_id });
-        if (!stores || stores.length === 0) {
-          return formatResponse({ entries: [], message: 'No knowledge store exists for this scope yet' });
-        }
-        
-        const store = stores[0];
-        const result = await apiClient.knowledge.listEntries(store.id, { entry_type, tags, limit });
+
+        const result = await apiClient.knowledge.listEntries({ scope, scope_id, entry_type, tags, limit });
         return formatResponse(result);
       }
       
@@ -2097,7 +2090,7 @@ function setupTools(server) {
         // Get goal context
         if (goal_id) {
           try {
-            context.goal = await apiClient.goals.getGoal(goal_id);
+            context.goal = await apiClient.goals.get(goal_id);
             
             // Get related knowledge if available
             if (include_knowledge) {

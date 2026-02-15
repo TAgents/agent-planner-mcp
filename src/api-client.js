@@ -277,7 +277,7 @@ const activity = {
    * @returns {Promise<Array>} - Activity feed
    */
   getPlanActivity: async (planId) => {
-    const response = await apiClient.get(`/activity/plan/${planId}`);
+    const response = await apiClient.get(`/activity/plans/${planId}/activity`);
     return response.data;
   },
 
@@ -286,7 +286,7 @@ const activity = {
    * @returns {Promise<Array>} - Activity feed
    */
   getGlobalActivity: async () => {
-    const response = await apiClient.get('/activity');
+    const response = await apiClient.get('/activity/feed');
     return response.data;
   }
 };
@@ -441,7 +441,7 @@ const tokens = {
    * @returns {Promise<Array>} - List of API tokens
    */
   getTokens: async () => {
-    const response = await apiClient.get('/tokens');
+    const response = await apiClient.get('/auth/token');
     return response.data;
   },
 
@@ -451,7 +451,7 @@ const tokens = {
    * @returns {Promise<Object>} - Created token
    */
   createToken: async (tokenData) => {
-    const response = await apiClient.post('/tokens', tokenData);
+    const response = await apiClient.post('/auth/token', tokenData);
     return response.data;
   },
 
@@ -461,7 +461,7 @@ const tokens = {
    * @returns {Promise<void>}
    */
   revokeToken: async (tokenId) => {
-    await apiClient.delete(`/tokens/${tokenId}`);
+    await apiClient.delete(`/auth/token/${tokenId}`);
   }
 };
 
@@ -562,51 +562,80 @@ const goals = {
  * Knowledge Store API functions
  */
 const knowledge = {
-  listStores: async (filters = {}) => {
+  /**
+   * List knowledge entries with optional filters
+   * GET /api/knowledge
+   */
+  listEntries: async (storeIdOrFilters, filters = {}) => {
     const params = new URLSearchParams();
-    if (filters.scope) params.append('scope', filters.scope);
-    if (filters.scope_id) params.append('scope_id', filters.scope_id);
-    const response = await apiClient.get(`/knowledge/stores?${params.toString()}`);
-    return response.data.stores || response.data;
-  },
-  
-  getStore: async (storeId) => {
-    const response = await apiClient.get(`/knowledge/stores/${storeId}`);
+    // Support both (storeId, filters) and (filters) calling patterns
+    if (typeof storeIdOrFilters === 'string') {
+      params.append('scopeId', storeIdOrFilters);
+      if (filters.entry_type) params.append('entryType', filters.entry_type);
+      if (filters.tags) params.append('tags', filters.tags);
+      if (filters.limit) params.append('limit', filters.limit);
+      if (filters.offset) params.append('offset', filters.offset);
+    } else if (typeof storeIdOrFilters === 'object') {
+      const f = storeIdOrFilters;
+      if (f.scope) params.append('scope', f.scope);
+      if (f.scope_id) params.append('scopeId', f.scope_id);
+      if (f.entry_type) params.append('entryType', f.entry_type);
+      if (f.limit) params.append('limit', f.limit);
+      if (f.offset) params.append('offset', f.offset);
+    }
+    const response = await apiClient.get(`/api/knowledge?${params.toString()}`);
     return response.data;
   },
-  
-  listEntries: async (storeId, filters = {}) => {
-    const params = new URLSearchParams({ store_id: storeId });
-    if (filters.entry_type) params.append('entry_type', filters.entry_type);
-    if (filters.tags) params.append('tags', filters.tags);
-    if (filters.limit) params.append('limit', filters.limit);
-    if (filters.offset) params.append('offset', filters.offset);
-    const response = await apiClient.get(`/knowledge/entries?${params.toString()}`);
-    return response.data;
+
+  /**
+   * Alias for listEntries — used by get_context and understand_context tools
+   */
+  getEntries: async (filters = {}) => {
+    return knowledge.listEntries(filters);
   },
-  
+
+  /**
+   * Get a single knowledge entry
+   * GET /api/knowledge/:id
+   */
   getEntry: async (entryId) => {
-    const response = await apiClient.get(`/knowledge/entries/${entryId}`);
+    const response = await apiClient.get(`/api/knowledge/${entryId}`);
     return response.data;
   },
-  
+
+  /**
+   * Create a knowledge entry
+   * POST /api/knowledge
+   */
   createEntry: async (data) => {
-    const response = await apiClient.post('/knowledge/entries', data);
+    const response = await apiClient.post('/api/knowledge', data);
     return response.data;
   },
-  
+
+  /**
+   * Update a knowledge entry
+   * PUT /api/knowledge/:id
+   */
   updateEntry: async (entryId, data) => {
-    const response = await apiClient.put(`/knowledge/entries/${entryId}`, data);
+    const response = await apiClient.put(`/api/knowledge/${entryId}`, data);
     return response.data;
   },
-  
+
+  /**
+   * Delete a knowledge entry
+   * DELETE /api/knowledge/:id
+   */
   deleteEntry: async (entryId) => {
-    const response = await apiClient.delete(`/knowledge/entries/${entryId}`);
+    const response = await apiClient.delete(`/api/knowledge/${entryId}`);
     return response.data;
   },
-  
+
+  /**
+   * Semantic search across knowledge entries
+   * POST /api/knowledge/search
+   */
   search: async (data) => {
-    const response = await apiClient.post('/knowledge/search', data);
+    const response = await apiClient.post('/api/knowledge/search', data);
     return response.data;
   }
 };
