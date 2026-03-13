@@ -939,7 +939,66 @@ function setupTools(server) {
           }
         },
         
-        // Old flat knowledge tools removed — use add_learning, recall_knowledge, find_entities, check_contradictions instead
+        // ===== GOAL-DEPENDENCY TOOLS =====
+        {
+          name: "goal_path",
+          description: "Get the full dependency path to a goal — all tasks that contribute to achieving it (direct achievers + their upstream blockers). Shows completion stats and which tasks are blocking progress.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID" },
+              max_depth: { type: "number", description: "Max traversal depth (default 20)" }
+            },
+            required: ["goal_id"]
+          }
+        },
+        {
+          name: "goal_progress",
+          description: "Get goal progress calculated from its dependency graph. Returns overall completion percentage and direct achiever progress.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID" }
+            },
+            required: ["goal_id"]
+          }
+        },
+        {
+          name: "add_achiever",
+          description: "Link a task to a goal via an 'achieves' dependency edge. This declares that completing this task contributes to achieving the goal.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID" },
+              node_id: { type: "string", description: "Task/node ID that achieves this goal" },
+              weight: { type: "number", description: "Edge weight for critical path (default 1)" }
+            },
+            required: ["goal_id", "node_id"]
+          }
+        },
+        {
+          name: "remove_achiever",
+          description: "Remove an achieves edge between a task and a goal",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID" },
+              dependency_id: { type: "string", description: "Dependency edge ID to remove" }
+            },
+            required: ["goal_id", "dependency_id"]
+          }
+        },
+        {
+          name: "goal_knowledge_gaps",
+          description: "Detect knowledge gaps for a goal — checks which tasks on the goal's dependency path lack relevant knowledge in the temporal knowledge graph. Useful for identifying where research is needed before implementation.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID" }
+            },
+            required: ["goal_id"]
+          }
+        },
 
         // ===== GRAPHITI KNOWLEDGE GRAPH TOOLS =====
         {
@@ -2093,6 +2152,40 @@ function setupTools(server) {
         });
       }
       
+      // ===== GOAL-DEPENDENCY HANDLERS =====
+      if (name === "goal_path") {
+        const { goal_id, max_depth } = args;
+        const result = await apiClient.goals.getPath(goal_id, max_depth);
+        return formatResponse(result);
+      }
+
+      if (name === "goal_progress") {
+        const { goal_id } = args;
+        const result = await apiClient.goals.getProgress(goal_id);
+        return formatResponse(result);
+      }
+
+      if (name === "add_achiever") {
+        const { goal_id, node_id, weight } = args;
+        const result = await apiClient.goals.addAchiever(goal_id, node_id, weight);
+        return formatResponse({
+          ...result,
+          message: `Task ${node_id} now achieves goal ${goal_id}`,
+        });
+      }
+
+      if (name === "remove_achiever") {
+        const { goal_id, dependency_id } = args;
+        const result = await apiClient.goals.removeAchiever(goal_id, dependency_id);
+        return formatResponse(result);
+      }
+
+      if (name === "goal_knowledge_gaps") {
+        const { goal_id } = args;
+        const result = await apiClient.goals.getKnowledgeGaps(goal_id);
+        return formatResponse(result);
+      }
+
       // ===== GRAPHITI KNOWLEDGE GRAPH HANDLERS =====
       if (name === "add_learning") {
         const { content, title, entry_type, plan_id, node_id } = args;

@@ -555,7 +555,42 @@ const goals = {
   unlinkPlan: async (goalId, planId) => {
     const response = await apiClient.delete(`/goals/${goalId}/plans/${planId}`);
     return response.data;
-  }
+  },
+
+  // v2 goal-dependency endpoints
+  getPath: async (goalId, maxDepth) => {
+    const params = maxDepth ? `?max_depth=${maxDepth}` : '';
+    const response = await apiClient.get(`/goals/v2/${goalId}/path${params}`);
+    return response.data;
+  },
+
+  getProgress: async (goalId) => {
+    const response = await apiClient.get(`/goals/v2/${goalId}/progress`);
+    return response.data;
+  },
+
+  listAchievers: async (goalId) => {
+    const response = await apiClient.get(`/goals/v2/${goalId}/achievers`);
+    return response.data;
+  },
+
+  addAchiever: async (goalId, sourceNodeId, weight) => {
+    const response = await apiClient.post(`/goals/v2/${goalId}/achievers`, {
+      source_node_id: sourceNodeId,
+      weight: weight ?? 1,
+    });
+    return response.data;
+  },
+
+  removeAchiever: async (goalId, depId) => {
+    const response = await apiClient.delete(`/goals/v2/${goalId}/achievers/${depId}`);
+    return response.data;
+  },
+
+  getKnowledgeGaps: async (goalId) => {
+    const response = await apiClient.get(`/goals/v2/${goalId}/knowledge-gaps`);
+    return response.data;
+  },
 };
 
 /**
