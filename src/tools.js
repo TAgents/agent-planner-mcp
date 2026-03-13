@@ -104,7 +104,7 @@ function setupTools(server) {
               plan_id: { type: "string", description: "Plan ID (required for API)" },
               status: { 
                 type: "string", 
-                enum: ["not_started", "in_progress", "completed", "blocked"],
+                enum: ["not_started", "in_progress", "completed", "blocked", "plan_ready"],
                 description: "New status"
               },
               note: { type: "string", description: "Optional note explaining the status change (especially useful for 'blocked')" }
@@ -380,14 +380,20 @@ function setupTools(server) {
               status: { 
                 type: "string", 
                 description: "Node status",
-                enum: ["not_started", "in_progress", "completed", "blocked"],
+                enum: ["not_started", "in_progress", "completed", "blocked", "plan_ready"],
                 default: "not_started"
               },
               context: { type: "string", description: "Additional context for the node" },
               agent_instructions: { type: "string", description: "Instructions for AI agents working on this node" },
               acceptance_criteria: { type: "string", description: "Criteria for node completion" },
               due_date: { type: "string", description: "Due date (ISO format)" },
-              metadata: { type: "object", description: "Additional metadata" }
+              metadata: { type: "object", description: "Additional metadata" },
+              task_mode: {
+                type: "string",
+                description: "RPI workflow mode for the node",
+                enum: ["research", "plan", "implement", "free"],
+                default: "free"
+              }
             },
             required: ["plan_id", "node_type", "title"]
           }
@@ -405,13 +411,18 @@ function setupTools(server) {
               status: { 
                 type: "string", 
                 description: "New node status",
-                enum: ["not_started", "in_progress", "completed", "blocked"]
+                enum: ["not_started", "in_progress", "completed", "blocked", "plan_ready"]
               },
               context: { type: "string", description: "New context" },
               agent_instructions: { type: "string", description: "New agent instructions" },
               acceptance_criteria: { type: "string", description: "New acceptance criteria" },
               due_date: { type: "string", description: "New due date (ISO format)" },
-              metadata: { type: "object", description: "New metadata" }
+              metadata: { type: "object", description: "New metadata" },
+              task_mode: {
+                type: "string",
+                description: "RPI workflow mode for the node",
+                enum: ["research", "plan", "implement", "free"]
+              }
             },
             required: ["plan_id", "node_id"]
           }
@@ -467,6 +478,168 @@ function setupTools(server) {
           }
         },
         
+        // ===== DEPENDENCY TOOLS =====
+        {
+          name: "create_dependency",
+          description: "Create a dependency edge between two nodes in a plan. Source 'blocks' target by default.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              source_node_id: { type: "string", description: "Source node ID (the blocker)" },
+              target_node_id: { type: "string", description: "Target node ID (the blocked)" },
+              dependency_type: {
+                type: "string",
+                description: "Type of dependency",
+                enum: ["blocks", "requires", "relates_to"],
+                default: "blocks"
+              },
+              weight: { type: "integer", description: "Edge weight (default 1)", default: 1 },
+              metadata: { type: "object", description: "Additional metadata" }
+            },
+            required: ["plan_id", "source_node_id", "target_node_id"]
+          }
+        },
+        {
+          name: "delete_dependency",
+          description: "Delete a dependency edge",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              dependency_id: { type: "string", description: "Dependency edge ID" }
+            },
+            required: ["plan_id", "dependency_id"]
+          }
+        },
+        {
+          name: "list_dependencies",
+          description: "List all dependency edges in a plan",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" }
+            },
+            required: ["plan_id"]
+          }
+        },
+        {
+          name: "get_node_dependencies",
+          description: "Get upstream and downstream dependencies for a node",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              node_id: { type: "string", description: "Node ID" },
+              direction: {
+                type: "string",
+                description: "Direction to query",
+                enum: ["upstream", "downstream", "both"],
+                default: "both"
+              }
+            },
+            required: ["plan_id", "node_id"]
+          }
+        },
+
+        // ===== RPI WORKFLOW =====
+        {
+          name: "create_rpi_chain",
+          description: "Create a Research→Plan→Implement task chain with automatic dependency edges. The three tasks are linked: Research blocks Plan, Plan blocks Implement.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              title: { type: "string", description: "Base title for the chain (e.g. 'Auth refactor')" },
+              description: { type: "string", description: "Description for the research task" },
+              parent_id: { type: "string", description: "Parent node ID (optional, defaults to root)" }
+            },
+            required: ["plan_id", "title"]
+          }
+        },
+
+        // ===== ANALYSIS TOOLS =====
+        {
+          name: "analyze_impact",
+          description: "Analyze what happens if a node is delayed, blocked, or removed. Shows directly and transitively affected nodes.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              node_id: { type: "string", description: "Node ID to analyze" },
+              scenario: {
+                type: "string",
+                description: "Impact scenario",
+                enum: ["delay", "block", "remove"],
+                default: "block"
+              }
+            },
+            required: ["plan_id", "node_id"]
+          }
+        },
+        {
+          name: "get_critical_path",
+          description: "Find the critical path (longest dependency chain) through incomplete tasks in a plan",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" }
+            },
+            required: ["plan_id"]
+          }
+        },
+
+        // ===== PROGRESSIVE CONTEXT TOOLS =====
+        {
+          name: "get_task_context",
+          description: "Get progressive context for a task at adjustable depth. This is the PRIMARY way to load context before starting work on a task.\n\nDepth levels:\n- 1: Task focus — node details + recent logs\n- 2: Local neighborhood — adds parent, siblings, direct dependencies\n- 3: Knowledge — adds plan-scoped knowledge entries\n- 4: Extended — adds plan overview, ancestry, goals, transitive dependencies\n\nFor RPI implement tasks, automatically includes research/plan outputs from the chain.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              node_id: { type: "string", description: "Task/node ID to get context for" },
+              depth: {
+                type: "integer",
+                description: "Context depth 1-4 (default 2). Start with 2, go deeper if needed.",
+                minimum: 1,
+                maximum: 4,
+                default: 2
+              },
+              token_budget: {
+                type: "integer",
+                description: "Max estimated tokens (0 = unlimited). Use to stay within context window limits.",
+                default: 0
+              },
+              log_limit: {
+                type: "integer",
+                description: "Max recent logs to include per node",
+                default: 10
+              },
+              include_research: {
+                type: "boolean",
+                description: "Include research outputs from RPI chain siblings (for implement tasks)",
+                default: true
+              }
+            },
+            required: ["node_id"]
+          }
+        },
+        {
+          name: "suggest_next_tasks",
+          description: "Suggest the next actionable tasks for a plan based on dependency analysis. Returns tasks where all upstream blockers are completed, prioritized by: RPI research tasks first, then by how many downstream tasks each unblocks.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID" },
+              limit: {
+                type: "integer",
+                description: "Maximum suggestions to return",
+                default: 5
+              }
+            },
+            required: ["plan_id"]
+          }
+        },
+
         // ===== LOGGING TOOLS (Replaces Comments) =====
         {
           name: "add_log",
@@ -532,7 +705,7 @@ function setupTools(server) {
                     node_id: { type: "string", description: "Node ID" },
                     status: { 
                       type: "string",
-                      enum: ["not_started", "in_progress", "completed", "blocked"]
+                      enum: ["not_started", "in_progress", "completed", "blocked", "plan_ready"]
                     },
                     title: { type: "string" },
                     description: { type: "string" }
@@ -766,102 +939,69 @@ function setupTools(server) {
           }
         },
         
-        // ===== KNOWLEDGE TOOLS =====
+        // Old flat knowledge tools removed — use add_learning, recall_knowledge, find_entities, check_contradictions instead
+
+        // ===== GRAPHITI KNOWLEDGE GRAPH TOOLS =====
         {
-          name: "add_knowledge_entry",
-          description: "Add a knowledge entry (decision, context, constraint, learning, reference, note) to a scope",
+          name: "add_learning",
+          description: "Record a knowledge episode to the temporal knowledge graph. Use this after research, when making decisions, or discovering important context. Graphiti automatically extracts entities and relationships. The knowledge persists across plans and sessions.",
           inputSchema: {
             type: "object",
             properties: {
-              scope: { 
-                type: "string", 
-                description: "Scope type",
-                enum: ["organization", "goal", "plan"]
-              },
-              scope_id: { type: "string", description: "ID of the org, goal, or plan" },
-              entry_type: { 
-                type: "string", 
-                description: "Type of knowledge entry",
-                enum: ["decision", "context", "constraint", "learning", "reference", "note"]
-              },
-              title: { type: "string", description: "Entry title" },
-              content: { type: "string", description: "Entry content" },
-              source_url: { type: "string", description: "Source URL (optional)" },
-              tags: { type: "array", description: "Tags for categorization", items: { type: "string" } }
+              content: { type: "string", description: "The knowledge content — be detailed. Include context, reasoning, and conclusions." },
+              title: { type: "string", description: "Short title/name for the episode" },
+              entry_type: { type: "string", enum: ["decision", "learning", "context", "constraint"], description: "Type of knowledge" },
+              plan_id: { type: "string", description: "Plan ID this knowledge relates to (optional)" },
+              node_id: { type: "string", description: "Node/task ID this knowledge relates to (optional)" }
             },
-            required: ["scope", "scope_id", "entry_type", "title", "content"]
+            required: ["content"]
           }
         },
         {
-          name: "list_knowledge_entries",
-          description: "List knowledge entries for a scope",
+          name: "recall_knowledge",
+          description: "Search the temporal knowledge graph for relevant facts, decisions, and learnings. Searches across ALL plans in the organization. Use before starting work or making decisions.",
           inputSchema: {
             type: "object",
             properties: {
-              scope: { 
-                type: "string", 
-                description: "Scope type",
-                enum: ["organization", "goal", "plan"]
-              },
-              scope_id: { type: "string", description: "ID of the org, goal, or plan" },
-              entry_type: { 
-                type: "string", 
-                description: "Filter by entry type",
-                enum: ["decision", "context", "constraint", "learning", "reference", "note"]
-              },
-              tags: { type: "string", description: "Filter by tags (comma-separated)" },
-              limit: { type: "integer", description: "Max entries to return", default: 50 }
-            },
-            required: ["scope", "scope_id"]
-          }
-        },
-        {
-          name: "search_knowledge",
-          description: "Search knowledge entries across scopes using text search",
-          inputSchema: {
-            type: "object",
-            properties: {
-              query: { type: "string", description: "Search query" },
-              scope: { 
-                type: "string", 
-                description: "Limit to scope type",
-                enum: ["organization", "goal", "plan"]
-              },
-              scope_id: { type: "string", description: "Limit to specific scope" },
-              entry_types: { 
-                type: "array", 
-                description: "Filter by entry types",
-                items: { type: "string" }
-              },
-              limit: { type: "integer", description: "Max results", default: 10 }
+              query: { type: "string", description: "What to search for — be specific" },
+              max_results: { type: "number", description: "Maximum results (default 10)", default: 10 }
             },
             required: ["query"]
           }
         },
         {
-          name: "update_knowledge_entry",
-          description: "Update a knowledge entry",
+          name: "find_entities",
+          description: "Search for entities (technologies, people, patterns, constraints) in the knowledge graph. Returns entity nodes with their relationships.",
           inputSchema: {
             type: "object",
             properties: {
-              entry_id: { type: "string", description: "Entry ID" },
-              title: { type: "string", description: "New title" },
-              content: { type: "string", description: "New content" },
-              entry_type: { type: "string", description: "New type" },
-              tags: { type: "array", description: "New tags", items: { type: "string" } }
+              query: { type: "string", description: "Entity search query" },
+              max_results: { type: "number", description: "Maximum results (default 10)", default: 10 }
             },
-            required: ["entry_id"]
+            required: ["query"]
+          }
+        },
+
+        {
+          name: "check_contradictions",
+          description: "Check if knowledge about a topic has changed over time. Returns current facts and any superseded (outdated) facts. Useful before making decisions based on past knowledge — ensures you're working with the latest information.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Topic to check for contradictions" },
+              max_results: { type: "number", description: "Maximum results (default 10)", default: 10 }
+            },
+            required: ["query"]
           }
         },
         {
-          name: "delete_knowledge_entry",
-          description: "Delete a knowledge entry",
+          name: "get_recent_episodes",
+          description: "Get recent knowledge episodes from the temporal graph. Returns the latest episodes (learnings, decisions, context) across all plans. Useful to understand what has been learned recently or to review your own work session history.",
           inputSchema: {
             type: "object",
             properties: {
-              entry_id: { type: "string", description: "Entry ID to delete" }
-            },
-            required: ["entry_id"]
+              max_episodes: { type: "number", description: "Maximum episodes to return (default 20)", default: 20 }
+            }
           }
         },
 
@@ -1132,12 +1272,8 @@ function setupTools(server) {
             context.goal = await apiClient.goals.get(goal_id);
             if (include_knowledge) {
               try {
-                const knowledge = await apiClient.knowledge.getEntries({ 
-                  scope: 'goal',
-                  scope_id: goal_id,
-                  limit: 10 
-                });
-                context.goal_knowledge = knowledge.entries || [];
+                const graphResult = await apiClient.graphiti.graphSearch({ query: context.goal?.title || '', max_results: 10 });
+                context.goal_knowledge = graphResult?.results?.facts || [];
               } catch (e) {}
             }
           } catch (e) {
@@ -1178,12 +1314,8 @@ function setupTools(server) {
             
             if (include_knowledge) {
               try {
-                const knowledge = await apiClient.knowledge.getEntries({ 
-                  scope: 'plan',
-                  scope_id: plan_id,
-                  limit: 10 
-                });
-                context.plan_knowledge = knowledge.entries || [];
+                const graphResult = await apiClient.graphiti.graphSearch({ query: context.plan?.title || '', max_results: 10 });
+                context.plan_knowledge = graphResult?.results?.facts || [];
               } catch (e) {}
             }
           } catch (e) {
@@ -1260,34 +1392,8 @@ function setupTools(server) {
         return formatResponse(tasks);
       }
       
-      // ========================================
-      // KNOWLEDGE SHORTCUTS
-      // ========================================
-      
-      if (name === "add_learning") {
-        const { title, content, scope = 'organization', scope_id, tags, entry_type = 'learning' } = args;
-        
-        const entryData = {
-          entry_type,
-          title,
-          content
-        };
-        if (scope) entryData.scope = scope;
-        if (scope_id) entryData.scope_id = scope_id;
-        if (tags) entryData.tags = tags;
-        
-        const entry = await apiClient.knowledge.createEntry(entryData);
-        
-        return formatResponse({
-          success: true,
-          message: "Knowledge captured for future reference",
-          entry_id: entry.id,
-          entry_type,
-          title,
-          tip: "This will be searchable via search_knowledge. Good practice!"
-        });
-      }
-      
+      // add_learning handled in GRAPHITI KNOWLEDGE GRAPH HANDLERS section below
+
       // ========================================
       // MARKDOWN EXPORT
       // ========================================
@@ -1692,6 +1798,90 @@ function setupTools(server) {
         return formatResponse(response.data);
       }
       
+      // ===== DEPENDENCIES =====
+      if (name === "create_dependency") {
+        const { plan_id, source_node_id, target_node_id, dependency_type, weight, metadata } = args;
+        const response = await apiClient.axiosInstance.post(
+          `/plans/${plan_id}/dependencies`,
+          { source_node_id, target_node_id, dependency_type, weight, metadata }
+        );
+        return formatResponse(response.data);
+      }
+
+      if (name === "delete_dependency") {
+        const { plan_id, dependency_id } = args;
+        const response = await apiClient.axiosInstance.delete(
+          `/plans/${plan_id}/dependencies/${dependency_id}`
+        );
+        return formatResponse(response.data);
+      }
+
+      if (name === "list_dependencies") {
+        const { plan_id } = args;
+        const response = await apiClient.axiosInstance.get(
+          `/plans/${plan_id}/dependencies`
+        );
+        return formatResponse(response.data);
+      }
+
+      if (name === "get_node_dependencies") {
+        const { plan_id, node_id, direction = 'both' } = args;
+        const response = await apiClient.axiosInstance.get(
+          `/plans/${plan_id}/nodes/${node_id}/dependencies`,
+          { params: { direction } }
+        );
+        return formatResponse(response.data);
+      }
+
+      // ===== RPI WORKFLOW =====
+      if (name === "create_rpi_chain") {
+        const { plan_id, title, description, parent_id } = args;
+        const response = await apiClient.axiosInstance.post(
+          `/plans/${plan_id}/nodes/rpi-chain`,
+          { title, description, parent_id }
+        );
+        return formatResponse(response.data);
+      }
+
+      // ===== ANALYSIS =====
+      if (name === "analyze_impact") {
+        const { plan_id, node_id, scenario = 'block' } = args;
+        const response = await apiClient.axiosInstance.get(
+          `/plans/${plan_id}/nodes/${node_id}/impact`,
+          { params: { scenario } }
+        );
+        return formatResponse(response.data);
+      }
+
+      if (name === "get_critical_path") {
+        const { plan_id } = args;
+        const response = await apiClient.axiosInstance.get(
+          `/plans/${plan_id}/critical-path`
+        );
+        return formatResponse(response.data);
+      }
+
+      // ===== PROGRESSIVE CONTEXT =====
+      if (name === "get_task_context") {
+        const { node_id, depth = 2, token_budget = 0, log_limit = 10, include_research = true } = args;
+        const params = new URLSearchParams({
+          node_id,
+          depth: String(depth),
+          token_budget: String(token_budget),
+          log_limit: String(log_limit),
+          include_research: String(include_research),
+        });
+        const response = await apiClient.axiosInstance.get(`/context/progressive?${params.toString()}`);
+        return formatResponse(response.data);
+      }
+
+      if (name === "suggest_next_tasks") {
+        const { plan_id, limit = 5 } = args;
+        const params = new URLSearchParams({ plan_id, limit: String(limit) });
+        const response = await apiClient.axiosInstance.get(`/context/suggest?${params.toString()}`);
+        return formatResponse(response.data);
+      }
+
       // ===== LOGGING =====
       if (name === "add_log") {
         const { plan_id, node_id, content, log_type = "comment", tags } = args;
@@ -1903,58 +2093,95 @@ function setupTools(server) {
         });
       }
       
-      // ===== KNOWLEDGE TOOLS =====
-      if (name === "add_knowledge_entry") {
-        const { scope, scope_id, entry_type, title, content, source_url, tags } = args;
-        const result = await apiClient.knowledge.createEntry({
-          scope,
-          scope_id,
-          entry_type,
-          title,
-          content,
-          source_url,
-          tags
-        });
-        return formatResponse(result);
-      }
-      
-      if (name === "list_knowledge_entries") {
-        const { scope, scope_id, entry_type, tags, limit = 50 } = args;
+      // ===== GRAPHITI KNOWLEDGE GRAPH HANDLERS =====
+      if (name === "add_learning") {
+        const { content, title, entry_type, plan_id, node_id } = args;
 
-        const result = await apiClient.knowledge.listEntries({ scope, scope_id, entry_type, tags, limit });
-        return formatResponse(result);
-      }
-      
-      if (name === "search_knowledge") {
-        const { query, scope, scope_id, entry_types, limit = 10 } = args;
-        
-        // Build search request
-        const searchData = { query, limit };
-        if (scope && scope_id) {
-          searchData.scope = scope;
-          searchData.scope_id = scope_id;
-        }
-        if (entry_types) {
-          searchData.entry_types = entry_types;
-        }
-        
-        const result = await apiClient.knowledge.search(searchData);
-        return formatResponse(result);
-      }
-      
-      if (name === "update_knowledge_entry") {
-        const { entry_id, ...updateData } = args;
-        const result = await apiClient.knowledge.updateEntry(entry_id, updateData);
-        return formatResponse(result);
-      }
-      
-      if (name === "delete_knowledge_entry") {
-        const { entry_id } = args;
-        await apiClient.knowledge.deleteEntry(entry_id);
-        return formatResponse({
-          success: true,
-          message: `Knowledge entry ${entry_id} deleted`
+        // Add to Graphiti temporal knowledge graph
+        const result = await apiClient.graphiti.addEpisode({
+          content,
+          name: title,
+          plan_id,
+          node_id,
+          metadata: { entry_type: entry_type || 'learning' },
         });
+        return formatResponse({
+          ...result,
+          message: 'Knowledge recorded in temporal graph',
+          tip: 'This is now searchable via recall_knowledge across all plans'
+        });
+      }
+
+      if (name === "recall_knowledge") {
+        const { query, max_results = 10 } = args;
+
+        // Try Graphiti first (temporal, cross-plan)
+        try {
+          const graphResult = await apiClient.graphiti.graphSearch({ query, max_results });
+          if (graphResult?.results) {
+            return formatResponse({
+              ...graphResult,
+              source: 'graphiti_temporal_graph'
+            });
+          }
+        } catch (err) {
+          return formatResponse({
+            results: [],
+            source: 'graphiti_temporal_graph',
+            error: 'Knowledge graph not available: ' + err.message,
+          });
+        }
+      }
+
+      if (name === "find_entities") {
+        const { query, max_results = 10 } = args;
+
+        try {
+          const result = await apiClient.graphiti.searchEntities({ query, max_results });
+          return formatResponse(result);
+        } catch (err) {
+          return formatResponse({
+            error: 'Entity search requires the temporal knowledge graph (Graphiti)',
+            detail: err.message
+          });
+        }
+      }
+
+      if (name === "check_contradictions") {
+        const { query, max_results = 10 } = args;
+
+        try {
+          const result = await apiClient.graphiti.detectContradictions({ query, max_results });
+          if (result.contradictions_found) {
+            return formatResponse({
+              ...result,
+              warning: 'Some knowledge has been superseded. Review the "superseded" facts before proceeding.',
+            });
+          }
+          return formatResponse({
+            ...result,
+            message: 'No contradictions found — all facts are current.',
+          });
+        } catch (err) {
+          return formatResponse({
+            error: 'Contradiction detection requires the temporal knowledge graph (Graphiti)',
+            detail: err.message,
+          });
+        }
+      }
+
+      if (name === "get_recent_episodes") {
+        const { max_episodes = 20 } = args || {};
+
+        try {
+          const result = await apiClient.graphiti.getEpisodes({ max_episodes });
+          return formatResponse(result);
+        } catch (err) {
+          return formatResponse({
+            error: 'Episodic memory requires the temporal knowledge graph (Graphiti)',
+            detail: err.message
+          });
+        }
       }
 
       // ===== HELPER TOOLS =====
@@ -1977,8 +2204,8 @@ function setupTools(server) {
               "2. Use list_plans to see existing plans",
               "3. Before working on a plan, use understand_context to get the full picture",
               "4. Update task statuses as you work (update_node with status)",
-              "5. Store important decisions and learnings using add_knowledge_entry",
-              "6. Check search_knowledge before making decisions to see past context"
+              "5. Store important decisions and learnings using add_learning",
+              "6. Check recall_knowledge before making decisions to see past context"
             ],
             quick_tips: [
               "Always capture WHY decisions were made, not just WHAT",
@@ -2010,7 +2237,7 @@ function setupTools(server) {
             workflow: [
               "1. Use get_plan_structure to see the full plan",
               "2. Find tasks with status 'not_started' or 'in_progress'",
-              "3. Before starting a task, check search_knowledge for relevant context",
+              "3. Before starting a task, check recall_knowledge for relevant context",
               "4. Update task status to 'in_progress' when you begin",
               "5. Add logs to document what you're doing",
               "6. Mark 'completed' when done, or 'blocked' if stuck"
@@ -2027,7 +2254,7 @@ function setupTools(server) {
               "When blocked, clearly document what's blocking you",
               "Store learnings as you go - don't wait until the end"
             ],
-            tools_to_use: ["get_plan_structure", "update_node", "add_log", "search_knowledge"]
+            tools_to_use: ["get_plan_structure", "update_node", "add_log", "recall_knowledge"]
           },
           knowledge: {
             title: "Knowledge Management",
@@ -2053,7 +2280,7 @@ function setupTools(server) {
               "When you discover a constraint or rule",
               "When you find a useful resource or reference"
             ],
-            tools_to_use: ["add_knowledge_entry", "search_knowledge", "list_knowledge_entries"]
+            tools_to_use: ["add_learning", "recall_knowledge", "find_entities", "check_contradictions"]
           },
           collaboration: {
             title: "Collaboration",
@@ -2097,12 +2324,8 @@ function setupTools(server) {
             // Get related knowledge if available
             if (include_knowledge) {
               try {
-                const knowledge = await apiClient.knowledge.getEntries({ 
-                  scope: 'goal',
-                  scope_id: goal_id,
-                  limit: 10 
-                });
-                context.goal_knowledge = knowledge.entries || [];
+                const graphResult = await apiClient.graphiti.graphSearch({ query: context.goal?.title || '', max_results: 10 });
+                context.goal_knowledge = graphResult?.results?.facts || [];
               } catch (e) {
                 // Knowledge fetch failed, continue without it
               }
@@ -2149,12 +2372,8 @@ function setupTools(server) {
             // Get related knowledge if available
             if (include_knowledge) {
               try {
-                const knowledge = await apiClient.knowledge.getEntries({ 
-                  scope: 'plan',
-                  scope_id: plan_id,
-                  limit: 10 
-                });
-                context.plan_knowledge = knowledge.entries || [];
+                const graphResult = await apiClient.graphiti.graphSearch({ query: context.plan?.title || '', max_results: 10 });
+                context.plan_knowledge = graphResult?.results?.facts || [];
               } catch (e) {
                 // Knowledge fetch failed, continue without it
               }

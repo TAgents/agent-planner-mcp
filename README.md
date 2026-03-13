@@ -14,6 +14,9 @@ This MCP server connects to the Planning System API, providing AI agents with co
 - **Batch Operations**: Update multiple nodes or retrieve multiple artifacts efficiently
 - **Rich Context**: Get comprehensive node context including ancestry, children, logs, and artifacts
 - **Structured Responses**: Clean JSON data for easy agent processing
+- **Dependency Graph**: Create dependency edges with cycle detection, traverse upstream/downstream, analyze impact
+- **Progressive Context**: 4-layer context assembly with token budgeting for efficient agent context loading
+- **RPI Chains**: Research→Plan→Implement task decomposition with automatic dependency wiring
 
 ### Available Tools
 
@@ -39,6 +42,21 @@ This MCP server connects to the Planning System API, providing AI agents with co
 - `get_logs` - Retrieve filtered log entries
 - `manage_artifact` - Add, get, search, or list artifacts
 - `batch_get_artifacts` - Retrieve multiple artifacts efficiently
+
+#### Dependencies & Analysis
+- `create_dependency` - Create dependency edge between nodes (with cycle detection)
+- `delete_dependency` - Remove a dependency edge
+- `list_dependencies` - List all dependency edges in a plan
+- `get_node_dependencies` - Get upstream/downstream dependencies for a node
+- `analyze_impact` - Impact analysis (delay/block/remove scenarios)
+- `get_critical_path` - Find longest blocking chain through incomplete tasks
+- `create_rpi_chain` - Create Research→Plan→Implement task chain
+
+#### Progressive Context
+- `get_task_context` - **Primary context tool** — progressive depth 1-4 with token budgeting
+- `suggest_next_tasks` - Dependency-aware task suggestions with RPI recommendations
+- `get_agent_context` - Focused context for a task (leaf-up traversal)
+- `get_plan_context` - Plan-level overview with phase summaries
 
 ## Getting Started
 
@@ -101,7 +119,7 @@ Edit the `.env` file:
 API_URL=http://localhost:3000
 USER_API_TOKEN=your_api_token_here
 MCP_SERVER_NAME=planning-system
-MCP_SERVER_VERSION=0.2.0
+MCP_SERVER_VERSION=0.3.1
 NODE_ENV=production
 ```
 
@@ -241,9 +259,10 @@ create_plan({
 // Add nodes to the plan
 create_node({
   plan_id: "plan-123",
-  node_type: "phase",
-  title: "Market Research",
-  description: "Initial market analysis and competitor research"
+  node_type: "task",
+  title: "Research Auth Patterns",
+  description: "Investigate auth strategies for microservices",
+  task_mode: "research"  // research | plan | implement | free
 })
 ```
 
@@ -288,6 +307,25 @@ get_node_ancestry({
 // Returns: path from root to node
 ```
 
+### Progressive Context
+
+```javascript
+// Get progressive context for a task (recommended over get_node_context)
+get_task_context({
+  node_id: "node-456",
+  depth: 2,         // 1=task, 2=+neighborhood, 3=+knowledge, 4=+plan overview
+  token_budget: 4000 // optional: limit context to ~4000 tokens
+})
+// Returns: task details, logs, RPI research, parent, siblings, dependencies
+
+// Get dependency-aware task suggestions
+suggest_next_tasks({
+  plan_id: "plan-123",
+  limit: 5
+})
+// Returns: ready tasks sorted by priority (RPI research first, then by impact)
+```
+
 ## Project Structure
 
 ```
@@ -312,7 +350,7 @@ npm run dev  # Auto-restart on changes
 - `API_URL` - Planning System API URL
 - `USER_API_TOKEN` - Authentication token
 - `MCP_SERVER_NAME` - Server name (default: planning-system-mcp)
-- `MCP_SERVER_VERSION` - Server version (default: 0.2.0)
+- `MCP_SERVER_VERSION` - Server version (default: 0.3.1)
 - `NODE_ENV` - Environment (development/production)
 
 ### Testing Tools
@@ -351,6 +389,12 @@ NODE_ENV=development npm start
 2. Use appropriate search scopes to minimize API calls
 3. Cache plan structures when making multiple operations
 4. Apply filters to limit result sets
+
+## LLM Skill Reference
+
+See **[SKILL.md](./SKILL.md)** for a complete reference designed to be consumed by LLMs. Include it in system prompts, CLAUDE.md files, or agent configurations to give any LLM full knowledge of how to use AgentPlanner tools effectively.
+
+Covers: workflow sequence, all tools with usage guidance, RPI chains, dependency management, progressive context loading, status values, and common patterns.
 
 ## License
 

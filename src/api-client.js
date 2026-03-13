@@ -559,88 +559,6 @@ const goals = {
 };
 
 /**
- * Knowledge Store API functions
- */
-const knowledge = {
-  /**
-   * List knowledge entries with optional filters
-   * GET /knowledge
-   */
-  listEntries: async (storeIdOrFilters, filters = {}) => {
-    const params = new URLSearchParams();
-    // Support both (storeId, filters) and (filters) calling patterns
-    if (typeof storeIdOrFilters === 'string') {
-      params.append('scopeId', storeIdOrFilters);
-      if (filters.entry_type) params.append('entryType', filters.entry_type);
-      if (filters.tags) params.append('tags', filters.tags);
-      if (filters.limit) params.append('limit', filters.limit);
-      if (filters.offset) params.append('offset', filters.offset);
-    } else if (typeof storeIdOrFilters === 'object') {
-      const f = storeIdOrFilters;
-      if (f.scope) params.append('scope', f.scope);
-      if (f.scope_id) params.append('scopeId', f.scope_id);
-      if (f.entry_type) params.append('entryType', f.entry_type);
-      if (f.limit) params.append('limit', f.limit);
-      if (f.offset) params.append('offset', f.offset);
-    }
-    const response = await apiClient.get(`/knowledge?${params.toString()}`);
-    return response.data;
-  },
-
-  /**
-   * Alias for listEntries — used by get_context and understand_context tools
-   */
-  getEntries: async (filters = {}) => {
-    return knowledge.listEntries(filters);
-  },
-
-  /**
-   * Get a single knowledge entry
-   * GET /knowledge/:id
-   */
-  getEntry: async (entryId) => {
-    const response = await apiClient.get(`/knowledge/${entryId}`);
-    return response.data;
-  },
-
-  /**
-   * Create a knowledge entry
-   * POST /knowledge
-   */
-  createEntry: async (data) => {
-    const response = await apiClient.post('/knowledge', data);
-    return response.data;
-  },
-
-  /**
-   * Update a knowledge entry
-   * PUT /knowledge/:id
-   */
-  updateEntry: async (entryId, data) => {
-    const response = await apiClient.put(`/knowledge/${entryId}`, data);
-    return response.data;
-  },
-
-  /**
-   * Delete a knowledge entry
-   * DELETE /knowledge/:id
-   */
-  deleteEntry: async (entryId) => {
-    const response = await apiClient.delete(`/knowledge/${entryId}`);
-    return response.data;
-  },
-
-  /**
-   * Semantic search across knowledge entries
-   * POST /knowledge/search
-   */
-  search: async (data) => {
-    const response = await apiClient.post('/knowledge/search', data);
-    return response.data;
-  }
-};
-
-/**
  * Agent Context API functions (leaf-up context loading)
  */
 const context = {
@@ -679,6 +597,74 @@ const context = {
   }
 };
 
+/**
+ * Graphiti Knowledge Graph API functions (proxied through AgentPlanner API)
+ */
+const graphiti = {
+  /**
+   * Get Graphiti status
+   * GET /knowledge/graphiti/status
+   */
+  getStatus: async () => {
+    const response = await apiClient.get('/knowledge/graphiti/status');
+    return response.data;
+  },
+
+  /**
+   * Add a knowledge episode to Graphiti
+   * POST /knowledge/episodes
+   */
+  addEpisode: async (data) => {
+    const response = await apiClient.post('/knowledge/episodes', data);
+    return response.data;
+  },
+
+  /**
+   * Search knowledge in Graphiti temporal graph
+   * POST /knowledge/graph-search
+   */
+  graphSearch: async (data) => {
+    const response = await apiClient.post('/knowledge/graph-search', data);
+    return response.data;
+  },
+
+  /**
+   * Search entities in Graphiti
+   * POST /knowledge/entities
+   */
+  searchEntities: async (data) => {
+    const response = await apiClient.post('/knowledge/entities', data);
+    return response.data;
+  },
+
+  /**
+   * Detect contradictions in knowledge
+   * POST /knowledge/contradictions
+   */
+  detectContradictions: async (data) => {
+    const response = await apiClient.post('/knowledge/contradictions', data);
+    return response.data;
+  },
+
+  /**
+   * Get recent episodes from Graphiti
+   * GET /knowledge/episodes
+   */
+  getEpisodes: async ({ max_episodes = 20 } = {}) => {
+    const response = await apiClient.get('/knowledge/episodes', { params: { max_episodes } });
+    return response.data;
+  },
+
+  /**
+   * Delete an episode from Graphiti
+   * DELETE /knowledge/episodes/:episodeId
+   */
+  deleteEpisode: async (episodeId) => {
+    const response = await apiClient.delete(`/knowledge/episodes/${episodeId}`);
+    return response.data;
+  }
+};
+
 // Export API client functions
 // Export the axios instance for direct use
 const axiosInstance = apiClient;
@@ -693,7 +679,7 @@ module.exports = {
   tokens,
   organizations,
   goals,
-  knowledge,
   context,
+  graphiti,
   axiosInstance  // Export for direct API calls
 };

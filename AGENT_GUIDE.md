@@ -2,16 +2,18 @@
 
 This guide is optimized for AI agents using AgentPlanner MCP tools.
 
-## 🎯 Core Workflow
+## Core Workflow
 
 ```
-1. get_context(plan_id) → Understand the situation
-2. Work on tasks (quick_status to track)
-3. quick_log your progress
-4. add_learning when you discover something important
+1. suggest_next_tasks(plan_id) → Find ready tasks (dependency-aware)
+2. get_task_context(node_id, depth=2) → Load progressive context
+3. Work on tasks (quick_status to track)
+4. quick_log your progress
+5. add_learning when you discover something important
+6. recall_knowledge before making decisions (check cross-plan history)
 ```
 
-## ⚡ Essential Tools
+## Essential Tools
 
 ### Before Starting Work
 ```javascript
@@ -21,9 +23,9 @@ Returns: statistics, blocked tasks, in-progress tasks, ready tasks, knowledge
 
 ### Update Task Status
 ```javascript
-quick_status({ 
-  task_id: "...", 
-  plan_id: "...", 
+quick_status({
+  task_id: "...",
+  plan_id: "...",
   status: "in_progress"  // or "completed" or "blocked"
 })
 ```
@@ -37,30 +39,63 @@ quick_log({
 })
 ```
 
-### Capture Knowledge
+### Check What Needs Attention
+```javascript
+get_my_tasks({})  // Gets blocked and in-progress across all plans
+```
+
+## Temporal Knowledge Graph
+
+AgentPlanner includes a temporal knowledge graph for persistent, cross-plan knowledge. Five tools for reading and writing knowledge:
+
+### add_learning - Record Knowledge
+Writes to the temporal knowledge graph. Use after research, decisions, and discoveries.
 ```javascript
 add_learning({
-  title: "Brief summary",
-  content: "Full details with context",
-  entry_type: "decision"  // or "learning", "context", "constraint"
+  content: "Detailed description of what you learned or decided",  // required
+  title: "Short title",
+  entry_type: "decision",  // decision | learning | context | constraint
+  plan_id: "...",           // optional: link to plan
+  node_id: "..."            // optional: link to task
 })
 ```
 
-### Search Past Knowledge
+### recall_knowledge - Search Cross-Plan Knowledge
+Searches temporal knowledge graph across ALL plans.
 ```javascript
-search_knowledge({ query: "relevant topic" })
+recall_knowledge({
+  query: "what auth pattern did we choose?",  // required
+  max_results: 10
+})
 ```
 
-## 📋 Task Status Values
+### find_entities - Search Entity Nodes
+Returns entities (technologies, people, patterns) with their relationships from the knowledge graph.
+```javascript
+find_entities({
+  query: "FalkorDB",  // required
+  max_results: 10
+})
+```
 
-| Status | When to Use |
-|--------|-------------|
-| `not_started` | Default - work hasn't begun |
-| `in_progress` | You're actively working on it |
-| `completed` | Done and verified |
-| `blocked` | Can't proceed - **always add a note explaining why** |
+### check_contradictions - Detect Outdated Facts
+Returns current and superseded facts. Use before making decisions to avoid acting on stale information.
+```javascript
+check_contradictions({
+  query: "deployment strategy",  // required
+  max_results: 10
+})
+```
 
-## 🧠 Knowledge Entry Types
+### get_recent_episodes - Temporal History
+Returns recent knowledge episodes in chronological order. Useful for understanding what happened recently.
+```javascript
+get_recent_episodes({
+  max_episodes: 10
+})
+```
+
+### Knowledge Entry Types
 
 | Type | When to Use |
 |------|-------------|
@@ -69,28 +104,73 @@ search_knowledge({ query: "relevant topic" })
 | `context` | Background info others need |
 | `constraint` | Rules/limitations to respect |
 
-## ✅ Best Practices
+## Dependencies & Impact Analysis
 
-1. **Always `get_context` first** - understand before acting
-2. **Log as you work** - helps humans and future agents follow
-3. **Capture decisions** - especially non-obvious ones with reasoning
-4. **Search before deciding** - check `search_knowledge` for existing decisions
-5. **Mark blockers clearly** - use `status: "blocked"` with explanation
-
-## 🆘 When Stuck
-
+### suggest_next_tasks - Find Ready Work
+Returns tasks where all upstream blockers are completed, prioritized by RPI chain position and downstream impact.
 ```javascript
-quick_status({
-  task_id: "...",
-  plan_id: "...",
-  status: "blocked",
-  note: "Need X from human - waiting for access credentials"
+suggest_next_tasks({ plan_id: "..." })
+```
+
+### get_task_context - Progressive Context Loading
+```javascript
+get_task_context({
+  node_id: "...",
+  depth: 2,        // 1=task only, 2=+siblings+deps, 3=+knowledge, 4=+plan+goals
+  token_budget: 0  // 0=unlimited, or max tokens to stay within context window
 })
 ```
 
-Then move to another task - a human will see the blocker.
+### create_dependency - Link Tasks
+```javascript
+create_dependency({
+  plan_id: "...",
+  source_node_id: "...",  // this node...
+  target_node_id: "...",  // ...blocks this node
+  dependency_type: "blocks"  // blocks | requires | relates_to
+})
+```
 
-## 🚀 Creating Plans
+### analyze_impact - What-If Analysis
+```javascript
+analyze_impact({
+  plan_id: "...",
+  node_id: "...",
+  scenario: "block"  // delay | block | remove
+})
+```
+
+## RPI Chains (Research -> Plan -> Implement)
+
+For complex tasks, decompose into a 3-step chain with blocking dependencies:
+
+```javascript
+create_rpi_chain({
+  plan_id: "...",
+  parent_id: "...",  // phase to add chain under
+  title: "Auth Service",
+  research_description: "Research auth patterns for microservices"
+})
+```
+
+Creates 3 tasks:
+- **Research** (R) - Investigate, log findings
+- **Plan** (P) - Design approach, mark `plan_ready` for human review
+- **Implement** (I) - Build it (automatically gets compacted research context)
+
+Task modes: `research`, `plan`, `implement`, `free`
+
+## Task Status Values
+
+| Status | When to Use |
+|--------|-------------|
+| `not_started` | Default - work hasn't begun |
+| `in_progress` | You're actively working on it |
+| `completed` | Done and verified |
+| `blocked` | Can't proceed - **always add a note explaining why** |
+| `plan_ready` | Plan phase complete - waiting for human review |
+
+## Creating Plans
 
 ### Quick (Most Common)
 ```javascript
@@ -110,32 +190,42 @@ import_plan_markdown({
 - Task A
 - Task B
 
-## Phase 2  
+## Phase 2
 - Task C
 `
 })
 ```
 
-## 📊 Checking What Needs Attention
+## Linking Plans to Goals
 
 ```javascript
-get_my_tasks({})  // Gets blocked and in-progress across all plans
-```
-
-## 🔗 Linking Plans to Goals
-
-```javascript
-// See available goals
 list_goals({})
-
-// Link your plan to a goal
 link_plan_to_goal({ goal_id: "...", plan_id: "..." })
 ```
 
+## When Stuck
+
+```javascript
+quick_status({
+  task_id: "...",
+  plan_id: "...",
+  status: "blocked",
+  note: "Need X from human - waiting for access credentials"
+})
+```
+
+Then move to another task - a human will see the blocker.
+
+## Best Practices
+
+1. **Use `get_task_context` instead of `get_context`** - progressive depth gives you exactly what you need
+2. **Check dependencies before starting** - use `suggest_next_tasks` to find what's ready
+3. **Log as you work** - helps humans and future agents follow
+4. **Record important findings** - use `add_learning` after research, decisions, and discoveries
+5. **Search before deciding** - check `recall_knowledge` for existing decisions across all plans
+6. **Check for contradictions** - use `check_contradictions` before acting on remembered facts
+7. **Mark blockers clearly** - use `status: "blocked"` with explanation
+
 ---
 
-**Remember**: AgentPlanner is your persistent memory and coordination tool. Use it to:
-- Track what you're doing
-- Remember what you learned
-- Coordinate with humans
-- Help future agents understand context
+**Remember**: AgentPlanner is your persistent memory and coordination tool. Use it to track what you're doing, remember what you learned, coordinate with humans, and help future agents understand context.
