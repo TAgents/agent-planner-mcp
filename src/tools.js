@@ -939,6 +939,52 @@ function setupTools(server) {
           }
         },
         
+        // ===== CROSS-PLAN & EXTERNAL DEPENDENCY TOOLS =====
+        {
+          name: "create_cross_plan_dependency",
+          description: "Create a dependency edge between nodes in different plans. Use when a task in one plan blocks or requires a task in another plan.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              source_node_id: { type: "string", description: "Source node ID (the blocker/prerequisite)" },
+              target_node_id: { type: "string", description: "Target node ID (the blocked/dependent task)" },
+              dependency_type: { type: "string", enum: ["blocks", "requires", "relates_to"], default: "blocks", description: "Edge type (default: blocks)" },
+              weight: { type: "number", description: "Edge weight (default 1)" }
+            },
+            required: ["source_node_id", "target_node_id"]
+          }
+        },
+        {
+          name: "list_cross_plan_dependencies",
+          description: "List all dependency edges that cross plan boundaries between specified plans.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_ids: {
+                type: "array",
+                items: { type: "string" },
+                description: "Plan IDs to check for cross-plan edges (at least 2)"
+              }
+            },
+            required: ["plan_ids"]
+          }
+        },
+        {
+          name: "create_external_dependency",
+          description: "Create an external dependency node representing a blocker outside the system (vendor API, legal approval, etc.). Optionally blocks a target task.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan to add the external dependency to" },
+              title: { type: "string", description: "External dependency title (e.g., 'Waiting for vendor API access')" },
+              description: { type: "string", description: "Details about the external dependency" },
+              url: { type: "string", description: "URL reference (ticket, docs, etc.)" },
+              blocks_node_id: { type: "string", description: "Node ID that this external dep blocks" }
+            },
+            required: ["plan_id", "title"]
+          }
+        },
+
         // ===== GOAL-DEPENDENCY TOOLS =====
         {
           name: "goal_path",
@@ -2152,6 +2198,29 @@ function setupTools(server) {
         });
       }
       
+      // ===== CROSS-PLAN & EXTERNAL DEPENDENCY HANDLERS =====
+      if (name === "create_cross_plan_dependency") {
+        const { source_node_id, target_node_id, dependency_type, weight } = args;
+        const result = await apiClient.dependencies.createCrossPlan({
+          source_node_id, target_node_id, dependency_type, weight
+        });
+        return formatResponse(result);
+      }
+
+      if (name === "list_cross_plan_dependencies") {
+        const { plan_ids } = args;
+        const result = await apiClient.dependencies.listCrossPlan(plan_ids);
+        return formatResponse(result);
+      }
+
+      if (name === "create_external_dependency") {
+        const { plan_id, title, description, url, blocks_node_id } = args;
+        const result = await apiClient.dependencies.createExternal({
+          plan_id, title, description, url, blocks_node_id
+        });
+        return formatResponse(result);
+      }
+
       // ===== GOAL-DEPENDENCY HANDLERS =====
       if (name === "goal_path") {
         const { goal_id, max_depth } = args;
