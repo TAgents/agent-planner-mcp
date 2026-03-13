@@ -1641,27 +1641,29 @@ function setupTools(server) {
       
       if (name === "move_node") {
         const { plan_id, node_id, parent_id, order_index } = args;
-        
+
         try {
+          // Build request body with only provided fields - don't send nulls
+          const body = {};
+          if (parent_id) body.parent_id = parent_id;
+          if (order_index !== undefined) body.order_index = order_index;
+
           // Call the move endpoint - using POST as per API definition
           const response = await apiClient.axiosInstance.post(
             `/plans/${plan_id}/nodes/${node_id}/move`,
-            { 
-              parent_id: parent_id || null,
-              order_index: order_index !== undefined ? order_index : null
-            }
+            body
           );
-          
+
           return formatResponse(response.data);
         } catch (error) {
           // If endpoint still doesn't work, try updating the node directly
           if (error.response && error.response.status === 404) {
             console.error('Move endpoint not found, trying direct update');
             // Fallback to updating the node's parent_id via regular update
-            const updateResponse = await apiClient.nodes.updateNode(plan_id, node_id, {
-              parent_id: parent_id || null,
-              order_index: order_index !== undefined ? order_index : null
-            });
+            const updateData = {};
+            if (parent_id) updateData.parent_id = parent_id;
+            if (order_index !== undefined) updateData.order_index = order_index;
+            const updateResponse = await apiClient.nodes.updateNode(plan_id, node_id, updateData);
             return formatResponse(updateResponse);
           }
           throw error;
