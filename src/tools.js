@@ -62,7 +62,7 @@ function setupTools(server) {
         // ========================================
         {
           name: "quick_plan",
-          description: "Create a plan quickly from a title and list of tasks. Perfect for getting started fast - just provide a title and task names. Returns plan URL and task IDs for immediate use.",
+          description: "Create a plan quickly from a title and list of tasks. Perfect for getting started fast - just provide a title and task names. Returns plan URL and task IDs for immediate use. Tip: provide a goal_id to automatically link this plan to a goal.",
           inputSchema: {
             type: "object",
             properties: {
@@ -73,7 +73,7 @@ function setupTools(server) {
                 items: { type: "string" },
                 description: "List of task titles (simple strings). A phase will be created automatically."
               },
-              goal_id: { type: "string", description: "Optionally link to a goal" },
+              goal_id: { type: "string", description: "Optionally link this plan to a goal. Recommended: always link plans to goals for tracking." },
               organization_id: { type: "string", description: "Organization ID (uses default if not provided)" }
             },
             required: ["title", "tasks"]
@@ -132,6 +132,46 @@ function setupTools(server) {
           }
         },
 
+        {
+          name: "check_goals_health",
+          description: "Check the health of all your goals. Returns per-goal health status (on_track/at_risk/stale), bottleneck summaries, knowledge gaps, and pending decisions. Call this FIRST in the autonomous loop to identify which goals need attention.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              status_filter: { type: "string", description: "Filter by health status (e.g. 'on_track', 'at_risk', 'stale')" }
+            }
+          }
+        },
+
+        // ========================================
+        // TASK CLAIMING - Prevent agent collisions
+        // ========================================
+        {
+          name: "claim_task",
+          description: "Claim exclusive ownership of a task before starting work. Prevents other agents from working on the same task. Claims expire after ttl_minutes (default 30). Always claim before starting work on a task.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              task_id: { type: "string", description: "Task ID to claim" },
+              plan_id: { type: "string", description: "Plan ID" },
+              ttl_minutes: { type: "integer", description: "Claim duration in minutes (default 30)", default: 30 }
+            },
+            required: ["task_id", "plan_id"]
+          }
+        },
+        {
+          name: "release_task",
+          description: "Release a previously claimed task. Called automatically when you complete a task, but use this if you need to abandon work early.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              task_id: { type: "string", description: "Task ID to release" },
+              plan_id: { type: "string", description: "Plan ID" }
+            },
+            required: ["task_id", "plan_id"]
+          }
+        },
+
         // ========================================
         // CONTEXT LOADING - Get everything you need
         // Use before starting work on a plan/goal
@@ -150,7 +190,7 @@ function setupTools(server) {
         },
         {
           name: "get_my_tasks",
-          description: "Get tasks that need attention - blocked tasks, in-progress tasks, and next tasks to start. Perfect for heartbeat check-ins.",
+          description: "Get tasks that need attention - blocked tasks, in-progress tasks, and next tasks to start. Perfect for status check-ins.",
           inputSchema: {
             type: "object",
             properties: {
@@ -2549,6 +2589,45 @@ function setupTools(server) {
         return formatResponse(context);
       }
       
+      // ===== GOALS HEALTH DASHBOARD =====
+      if (name === "check_goals_health") {
+        const { status_filter } = args || {};
+        const result = await apiClient.goals.getDashboard();
+
+        let goals = result.goals || result;
+        if (status_filter && Array.isArray(goals)) {
+          goals = goals.filter(g => g.health_status === status_filter || g.status === status_filter);
+        }
+
+        return formatResponse({
+          ...result,
+          goals,
+          tip: "Prioritize: stale goals first, then at_risk, then on_track."
+        });
+      }
+
+      // ===== TASK CLAIMING =====
+      if (name === "claim_task") {
+        const { task_id, plan_id, ttl_minutes = 30 } = args;
+        const result = await apiClient.nodes.claimTask(plan_id, task_id, 'mcp-agent', ttl_minutes);
+        return formatResponse({
+          success: true,
+          message: `Task ${task_id} claimed for ${ttl_minutes} minutes`,
+          ...result,
+          tip: "Remember to release the task when done, or it will auto-expire."
+        });
+      }
+
+      if (name === "release_task") {
+        const { task_id, plan_id } = args;
+        const result = await apiClient.nodes.releaseTask(plan_id, task_id, 'mcp-agent');
+        return formatResponse({
+          success: true,
+          message: `Task ${task_id} released`,
+          ...result
+        });
+      }
+
       // Tool not found
       throw new Error(`Unknown tool: ${name}`);
     } catch (error) {

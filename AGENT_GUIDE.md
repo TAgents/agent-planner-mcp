@@ -42,6 +42,14 @@ quick_log({
 ### Check What Needs Attention
 ```javascript
 get_my_tasks({})  // Gets blocked and in-progress across all plans
+check_goals_health({})  // Health dashboard for all goals
+```
+
+### Claim a Task Before Working
+```javascript
+claim_task({ task_id: "...", plan_id: "...", ttl_minutes: 30 })
+// When done or abandoning:
+release_task({ task_id: "...", plan_id: "..." })
 ```
 
 ## Temporal Knowledge Graph
@@ -215,6 +223,24 @@ quick_status({
 ```
 
 Then move to another task - a human will see the blocker.
+
+## Autonomous Goal-Driven Loop (Quick Reference)
+
+For periodic/cron-driven agents, follow this 5-phase pattern:
+
+```
+Phase 1: ORIENT   → check_goals_health()
+Phase 2: PLAN     → get_goal() → recall_knowledge() → quick_plan({..., goal_id})
+Phase 3: DECOMPOSE→ create_rpi_chain() for complex tasks
+Phase 4: EXECUTE  → suggest_next_tasks() → claim_task() → work → quick_log() → quick_status("completed")
+Phase 5: REPORT   → quick_log({..., log_type: "completion"})
+```
+
+Key rules:
+- **Always claim before working** — `claim_task()` prevents agent collisions
+- **Always link plans to goals** — enables health tracking
+- **Log decisions and learnings** — `add_learning()` persists cross-plan
+- **Check contradictions first** — `check_contradictions()` before acting on old knowledge
 
 ## Best Practices
 

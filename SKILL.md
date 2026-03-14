@@ -62,7 +62,7 @@ Each suggestion includes a `reason` field explaining why it's recommended.
 
 | Tool | Use When |
 |------|----------|
-| `quick_plan` | Creating a new plan from a title + task list |
+| `quick_plan` | Creating a new plan from a title + task list (provide goal_id to auto-link) |
 | `quick_task` | Adding a single task to an existing plan |
 | `quick_status` | Updating a task's status (the most common operation) |
 | `quick_log` | Logging progress on a task |
@@ -153,12 +153,20 @@ For research and plan tasks, use `reasoning` and `decision` log types — these 
 
 | Tool | Purpose |
 |------|---------|
+| `check_goals_health` | Dashboard of all goals with health status, bottlenecks, and gaps |
 | `list_goals` | See all goals |
 | `create_goal` | Create a goal |
 | `update_goal` | Update goal details |
 | `get_goal` | Get goal with linked plans |
 | `link_plan_to_goal` | Connect a plan to a goal |
 | `unlink_plan_from_goal` | Disconnect a plan from a goal |
+
+### Task Claiming
+
+| Tool | Purpose |
+|------|---------|
+| `claim_task` | Claim exclusive ownership of a task (prevents agent collisions) |
+| `release_task` | Release a previously claimed task |
 
 ### Knowledge (Temporal Knowledge Graph)
 
@@ -318,6 +326,53 @@ When to use RPI vs. a single task:
 2. get_critical_path({ plan_id: "..." })
    → See the longest dependency chain (what determines overall completion time)
 ```
+
+## Autonomous Goal-Driven Loop
+
+For agents that run periodically (e.g., via cron or event triggers), this is the recommended execution pattern:
+
+### Phase 1: Orient
+```
+check_goals_health()
+```
+Identify which goals are stale, at risk, or need attention. Prioritize goals by health status: stale first, then at_risk, then on_track.
+
+### Phase 2: Plan
+For each goal needing attention:
+```
+get_goal({goal_id})           # Understand the objective
+recall_knowledge({query})     # What do we already know?
+quick_plan({title, tasks, goal_id})  # Create/update plan linked to goal
+```
+
+### Phase 3: Decompose
+For complex tasks, use RPI chains:
+```
+create_rpi_chain({plan_id, parent_id, topic})  # Research → Plan → Implement
+```
+
+### Phase 4: Execute
+```
+suggest_next_tasks({plan_id})     # What's unblocked?
+claim_task({task_id, plan_id})    # Claim exclusive ownership
+get_task_context({node_id, depth: 3})  # Load context
+# ... do the work ...
+quick_log({task_id, plan_id, message})  # Document progress
+add_learning({content, plan_id})  # Capture knowledge
+quick_status({task_id, plan_id, status: "completed"})  # Triggers propagation
+```
+
+### Phase 5: Report
+```
+quick_log({task_id, plan_id, message: "Summary of work done", log_type: "completion"})
+```
+
+### Key Principles
+- **Always claim before working** — prevents collisions with other agents
+- **Always link plans to goals** — enables health tracking and progress reporting
+- **Log decisions and learnings** — future agents and humans need your reasoning
+- **Check for contradictions** — `check_contradictions()` before acting on old knowledge
+- **Let propagation work** — completing blockers auto-unblocks downstream tasks
 
 ## Rules
 

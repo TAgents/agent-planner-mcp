@@ -208,6 +208,21 @@ const nodes = {
    */
   deleteNode: async (planId, nodeId) => {
     await apiClient.delete(`/plans/${planId}/nodes/${nodeId}`);
+  },
+
+  claimTask: async (planId, nodeId, agentId = 'mcp-agent', ttlMinutes = 30) => {
+    const response = await apiClient.post(`/plans/${planId}/nodes/${nodeId}/claim`, { agent_id: agentId, ttl_minutes: ttlMinutes });
+    return response.data;
+  },
+
+  releaseTask: async (planId, nodeId, agentId = 'mcp-agent') => {
+    const response = await apiClient.delete(`/plans/${planId}/nodes/${nodeId}/claim`, { data: { agent_id: agentId } });
+    return response.data;
+  },
+
+  getTaskClaim: async (planId, nodeId) => {
+    const response = await apiClient.get(`/plans/${planId}/nodes/${nodeId}/claim`);
+    return response.data;
   }
 };
 
@@ -591,6 +606,11 @@ const goals = {
     const response = await apiClient.get(`/goals/v2/${goalId}/knowledge-gaps`);
     return response.data;
   },
+
+  getDashboard: async () => {
+    const response = await apiClient.get('/goals/v2/dashboard');
+    return response.data;
+  },
 };
 
 /**
@@ -700,6 +720,38 @@ const graphiti = {
   }
 };
 
+// ─── Dependencies (cross-plan & external) ─────────────────────
+const dependencies = {
+  /**
+   * Create a cross-plan dependency edge
+   * POST /dependencies/cross-plan
+   */
+  createCrossPlan: async (data) => {
+    const response = await apiClient.post('/dependencies/cross-plan', data);
+    return response.data;
+  },
+
+  /**
+   * List cross-plan dependency edges between plans
+   * GET /dependencies/cross-plan?plan_ids=id1,id2
+   */
+  listCrossPlan: async (planIds) => {
+    const response = await apiClient.get('/dependencies/cross-plan', {
+      params: { plan_ids: planIds.join(',') },
+    });
+    return response.data;
+  },
+
+  /**
+   * Create an external dependency node (and optionally a blocking edge)
+   * POST /dependencies/external
+   */
+  createExternal: async (data) => {
+    const response = await apiClient.post('/dependencies/external', data);
+    return response.data;
+  },
+};
+
 // Export API client functions
 // Export the axios instance for direct use
 const axiosInstance = apiClient;
@@ -716,5 +768,6 @@ module.exports = {
   goals,
   context,
   graphiti,
+  dependencies,
   axiosInstance  // Export for direct API calls
 };
