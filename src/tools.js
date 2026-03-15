@@ -210,31 +210,6 @@ function setupTools(server) {
         },
 
         // ========================================
-        // KNOWLEDGE - Build persistent memory
-        // ========================================
-        {
-          name: "add_learning",
-          description: "Capture something you learned for future reference. This persists beyond the current session - other agents and future-you will benefit.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              title: { type: "string", description: "Brief title summarizing the learning" },
-              content: { type: "string", description: "What you learned - be specific and include context" },
-              scope: { type: "string", enum: ["organization", "goal", "plan"], description: "Where to store this (defaults to organization)" },
-              scope_id: { type: "string", description: "ID of the organization/goal/plan" },
-              tags: { type: "array", items: { type: "string" }, description: "Tags for easier retrieval" },
-              entry_type: {
-                type: "string",
-                enum: ["learning", "decision", "context", "constraint"],
-                default: "learning",
-                description: "Type of knowledge"
-              }
-            },
-            required: ["title", "content"]
-          }
-        },
-
-        // ========================================
         // MARKDOWN EXPORT/IMPORT - Filesystem pattern
         // ========================================
         {

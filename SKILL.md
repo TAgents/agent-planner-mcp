@@ -128,10 +128,12 @@ Cycle detection is automatic — you cannot create a dependency that would form 
 
 | Tool | Purpose |
 |------|---------|
-| `get_task_context` | Progressive context at depth 1-4 with token budgeting |
+| `get_task_context` | **Preferred.** Progressive context at depth 1-4 with token budgeting |
 | `suggest_next_tasks` | Find ready tasks based on dependency analysis |
-| `get_agent_context` | Legacy leaf-up context (prefer get_task_context) |
+| `understand_context` | Full situation overview for a plan or goal (see Orientation) |
 | `get_plan_context` | Plan overview with phase summaries |
+| `get_agent_context` | Legacy leaf-up context (use `get_task_context` instead) |
+| `get_context` | Legacy full-plan context (use `get_task_context` or `understand_context` instead) |
 
 ### Logging
 
@@ -160,6 +162,23 @@ For research and plan tasks, use `reasoning` and `decision` log types — these 
 | `get_goal` | Get goal with linked plans |
 | `link_plan_to_goal` | Connect a plan to a goal |
 | `unlink_plan_from_goal` | Disconnect a plan from a goal |
+| `goal_path` | Full dependency path to a goal — all tasks that contribute (direct achievers + upstream blockers) |
+| `goal_progress` | Completion percentage calculated from the goal's dependency graph |
+| `goal_knowledge_gaps` | Detect tasks on the goal path that lack knowledge — identifies where research is needed |
+| `add_achiever` | Link a task to a goal via an "achieves" edge (declares this task contributes to the goal) |
+| `remove_achiever` | Remove an achieves edge between a task and a goal |
+
+Goal-task linking creates a dependency graph from tasks up to goals. Use `add_achiever` to declare which tasks contribute to a goal, then `goal_path` and `goal_progress` to track completion through the full dependency chain. `goal_knowledge_gaps` checks which tasks on the path lack relevant knowledge in the temporal graph — useful for identifying where research is needed before implementation.
+
+### Cross-Plan Dependencies
+
+| Tool | Purpose |
+|------|---------|
+| `create_cross_plan_dependency` | Create a dependency edge between nodes in different plans |
+| `list_cross_plan_dependencies` | List all edges that cross plan boundaries between specified plans |
+| `create_external_dependency` | Create an external blocker (vendor API, legal approval, etc.) that optionally blocks a task |
+
+Cross-plan dependencies work the same as regular dependencies (`blocks`, `requires`, `relates_to`) but connect nodes across plans. External dependencies represent blockers outside the system.
 
 ### Task Claiming
 
@@ -214,6 +233,17 @@ Use `get_recent_episodes` to review what has been learned recently across all pl
 | `get_organization` | Organization details |
 | `create_organization` | Create an org |
 | `update_organization` | Update org details |
+
+### Orientation
+
+| Tool | Purpose |
+|------|---------|
+| `get_started` | Guidance on how to use AgentPlanner — call when new or unsure how to approach a task |
+| `understand_context` | Comprehensive context about a plan or goal (purpose, state, activity, blockers, knowledge) |
+
+`get_started` accepts an optional `topic`: `overview`, `planning`, `execution`, `knowledge`, or `collaboration`.
+
+`understand_context` accepts `plan_id` and/or `goal_id` — use it before starting work on an unfamiliar plan or goal to get the full picture in one call.
 
 ### Other
 
