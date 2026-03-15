@@ -12,6 +12,10 @@
 const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const apiClient = require('./api-client');
 
+const APP_URL = (process.env.APP_URL || 'https://agentplanner.io').replace(/\/$/, '');
+function buildPlanUrl(planId) { return `${APP_URL}/app/plans/${planId}`; }
+function buildTaskUrl(planId, nodeId) { return `${APP_URL}/app/plans/${planId}?node=${nodeId}`; }
+
 /**
  * Format JSON data as text for Claude Desktop
  */
@@ -1252,7 +1256,7 @@ function setupTools(server) {
           success: true,
           message: `Plan "${title}" created with ${tasks.length} tasks`,
           plan_id: plan.id,
-          plan_url: `https://www.agentplanner.io/app/plans/${plan.id}`,
+          plan_url: buildPlanUrl(plan.id),
           phase_id: phase.id,
           task_ids: createdTasks.map(t => t.id),
           tasks: createdTasks,
@@ -1314,7 +1318,7 @@ function setupTools(server) {
           task_id: task.id,
           plan_id: plan_id,
           phase_id: targetPhaseId,
-          task_url: `https://www.agentplanner.io/app/plans/${plan_id}?node=${task.id}`,
+          task_url: buildTaskUrl(plan_id, task.id),
           next_steps: [
             "Use quick_status to mark as in_progress when you start",
             "Use quick_log to document progress"
@@ -1430,7 +1434,7 @@ function setupTools(server) {
         if (plan_id) {
           try {
             context.plan = await apiClient.plans.getPlan(plan_id);
-            context.plan_url = `https://www.agentplanner.io/app/plans/${plan_id}`;
+            context.plan_url = buildPlanUrl(plan_id);
             
             const nodes = await apiClient.nodes.getNodes(plan_id);
             context.statistics = calculatePlanStatistics(nodes);
@@ -1726,7 +1730,7 @@ function setupTools(server) {
           success: true,
           message: `Plan "${planTitle}" created from markdown with ${phases.length} phases and ${createdTasks.length} tasks`,
           plan_id: plan.id,
-          plan_url: `https://www.agentplanner.io/app/plans/${plan.id}`,
+          plan_url: buildPlanUrl(plan.id),
           phases: createdPhases,
           tasks: createdTasks,
           next_steps: [
@@ -1851,7 +1855,7 @@ function setupTools(server) {
         const result = await apiClient.plans.updateVisibility(plan_id, visibilityData);
         
         const shareUrl = visibility === "public" 
-          ? `https://www.agentplanner.io/app/plans/${plan_id}`
+          ? buildPlanUrl(plan_id)
           : null;
         
         return formatResponse({
