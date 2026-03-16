@@ -752,6 +752,163 @@ const dependencies = {
   },
 };
 
+/**
+ * Create an API client bound to a specific token.
+ * Used by the HTTP MCP server to create per-session clients.
+ * @param {string} token - API token or JWT
+ * @returns {Object} - API client modules (plans, nodes, etc.)
+ */
+function createApiClient(token) {
+  const scheme = getAuthScheme(token);
+  const client = axios.create({
+    baseURL: process.env.API_URL || 'http://localhost:3000',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `${scheme} ${token}` : undefined
+    }
+  });
+
+  // Reuse the same interceptors
+  if (process.env.NODE_ENV === 'development') {
+    client.interceptors.request.use(request => {
+      console.error(`API Request: ${request.method.toUpperCase()} ${request.url}`);
+      return request;
+    });
+  }
+  client.interceptors.response.use(
+    response => response,
+    error => {
+      if (error.response && error.response.status === 401) {
+        console.error('API Error: Authentication failed (401).');
+      }
+      return Promise.reject(error);
+    }
+  );
+
+  // Build the same module structure using the per-session client
+  return {
+    plans: {
+      getPlans: async () => (await client.get('/plans')).data,
+      getPlan: async (planId) => (await client.get(`/plans/${planId}`)).data,
+      createPlan: async (planData) => (await client.post('/plans', planData)).data,
+      updatePlan: async (planId, planData) => (await client.put(`/plans/${planId}`, planData)).data,
+      deletePlan: async (planId) => await client.delete(`/plans/${planId}`),
+      updateVisibility: async (planId, data) => (await client.put(`/plans/${planId}/visibility`, data)).data,
+      getPublicPlan: async (planId) => (await client.get(`/plans/${planId}/public`)).data,
+    },
+    nodes: {
+      getNodes: async (planId, options = {}) => {
+        const params = new URLSearchParams();
+        if (options.include_details) params.append('include_details', 'true');
+        const qs = params.toString() ? `?${params.toString()}` : '';
+        return (await client.get(`/plans/${planId}/nodes${qs}`)).data;
+      },
+      getNode: async (planId, nodeId) => (await client.get(`/plans/${planId}/nodes/${nodeId}`)).data,
+      createNode: async (planId, nodeData) => (await client.post(`/plans/${planId}/nodes`, nodeData)).data,
+      updateNode: async (planId, nodeId, nodeData) => (await client.put(`/plans/${planId}/nodes/${nodeId}`, nodeData)).data,
+      updateNodeStatus: async (planId, nodeId, status) => (await client.put(`/plans/${planId}/nodes/${nodeId}/status`, { status })).data,
+      deleteNode: async (planId, nodeId) => await client.delete(`/plans/${planId}/nodes/${nodeId}`),
+      claimTask: async (planId, nodeId, agentId = 'mcp-agent', ttlMinutes = 30) => (await client.post(`/plans/${planId}/nodes/${nodeId}/claim`, { agent_id: agentId, ttl_minutes: ttlMinutes })).data,
+      releaseTask: async (planId, nodeId, agentId = 'mcp-agent') => (await client.delete(`/plans/${planId}/nodes/${nodeId}/claim`, { data: { agent_id: agentId } })).data,
+      getTaskClaim: async (planId, nodeId) => (await client.get(`/plans/${planId}/nodes/${nodeId}/claim`)).data,
+    },
+    comments: {
+      getComments: async (planId, nodeId) => (await client.get(`/plans/${planId}/nodes/${nodeId}/comments`)).data,
+      addComment: async (planId, nodeId, data) => (await client.post(`/plans/${planId}/nodes/${nodeId}/comments`, data)).data,
+    },
+    logs: {
+      getLogs: async (planId, nodeId) => (await client.get(`/plans/${planId}/nodes/${nodeId}/logs`)).data,
+      addLogEntry: async (planId, nodeId, data) => (await client.post(`/plans/${planId}/nodes/${nodeId}/log`, data)).data,
+    },
+    activity: {
+      getPlanActivity: async (planId) => (await client.get(`/activity/plans/${planId}/activity`)).data,
+      getGlobalActivity: async () => (await client.get('/activity/feed')).data,
+    },
+    search: {
+      searchPlan: async (planId, query) => {
+        try {
+          return (await client.get(`/search/plan/${planId}`, { params: { query } })).data;
+        } catch (error) {
+          return { results: [], count: 0, query };
+        }
+      },
+      globalSearch: async (query) => {
+        try {
+          return (await client.get('/search', { params: { query } })).data;
+        } catch (error) {
+          return { results: [], count: 0, query };
+        }
+      },
+    },
+    tokens: {
+      getTokens: async () => (await client.get('/auth/token')).data,
+      createToken: async (data) => (await client.post('/auth/token', data)).data,
+      revokeToken: async (tokenId) => await client.delete(`/auth/token/${tokenId}`),
+    },
+    organizations: {
+      list: async () => { const r = await client.get('/organizations'); return r.data.organizations || r.data; },
+      get: async (orgId) => (await client.get(`/organizations/${orgId}`)).data,
+      create: async (data) => (await client.post('/organizations', data)).data,
+      update: async (orgId, data) => (await client.put(`/organizations/${orgId}`, data)).data,
+      delete: async (orgId) => (await client.delete(`/organizations/${orgId}`)).data,
+      listMembers: async (orgId) => { const r = await client.get(`/organizations/${orgId}/members`); return r.data.members || r.data; },
+      addMember: async (orgId, data) => (await client.post(`/organizations/${orgId}/members`, data)).data,
+      removeMember: async (orgId, memberId) => (await client.delete(`/organizations/${orgId}/members/${memberId}`)).data,
+    },
+    goals: {
+      list: async (filters = {}) => {
+        const params = new URLSearchParams();
+        if (filters.organization_id) params.append('organization_id', filters.organization_id);
+        if (filters.status) params.append('status', filters.status);
+        const r = await client.get(`/goals?${params.toString()}`);
+        return r.data.goals || r.data;
+      },
+      get: async (goalId) => (await client.get(`/goals/${goalId}`)).data,
+      create: async (data) => (await client.post('/goals', data)).data,
+      update: async (goalId, data) => (await client.put(`/goals/${goalId}`, data)).data,
+      updateMetrics: async (goalId, metrics) => (await client.put(`/goals/${goalId}/metrics`, { metrics })).data,
+      delete: async (goalId) => (await client.delete(`/goals/${goalId}`)).data,
+      linkPlan: async (goalId, planId) => (await client.post(`/goals/${goalId}/plans/${planId}`)).data,
+      unlinkPlan: async (goalId, planId) => (await client.delete(`/goals/${goalId}/plans/${planId}`)).data,
+      getPath: async (goalId, maxDepth) => { const p = maxDepth ? `?max_depth=${maxDepth}` : ''; return (await client.get(`/goals/v2/${goalId}/path${p}`)).data; },
+      getProgress: async (goalId) => (await client.get(`/goals/v2/${goalId}/progress`)).data,
+      listAchievers: async (goalId) => (await client.get(`/goals/v2/${goalId}/achievers`)).data,
+      addAchiever: async (goalId, sourceNodeId, weight) => (await client.post(`/goals/v2/${goalId}/achievers`, { source_node_id: sourceNodeId, weight: weight ?? 1 })).data,
+      removeAchiever: async (goalId, depId) => (await client.delete(`/goals/v2/${goalId}/achievers/${depId}`)).data,
+      getKnowledgeGaps: async (goalId) => (await client.get(`/goals/v2/${goalId}/knowledge-gaps`)).data,
+      getDashboard: async () => (await client.get('/goals/v2/dashboard')).data,
+    },
+    context: {
+      getNodeContext: async (nodeId, options = {}) => {
+        const params = new URLSearchParams({ node_id: nodeId });
+        if (options.include_knowledge !== undefined) params.append('include_knowledge', options.include_knowledge);
+        if (options.include_siblings !== undefined) params.append('include_siblings', options.include_siblings);
+        return (await client.get(`/context?${params.toString()}`)).data;
+      },
+      getPlanContext: async (planId, options = {}) => {
+        const params = new URLSearchParams({ plan_id: planId });
+        if (options.include_knowledge !== undefined) params.append('include_knowledge', options.include_knowledge);
+        return (await client.get(`/context/plan?${params.toString()}`)).data;
+      },
+    },
+    graphiti: {
+      getStatus: async () => (await client.get('/knowledge/graphiti/status')).data,
+      addEpisode: async (data) => (await client.post('/knowledge/episodes', data)).data,
+      graphSearch: async (data) => (await client.post('/knowledge/graph-search', data)).data,
+      searchEntities: async (data) => (await client.post('/knowledge/entities', data)).data,
+      detectContradictions: async (data) => (await client.post('/knowledge/contradictions', data)).data,
+      getEpisodes: async ({ max_episodes = 20 } = {}) => (await client.get('/knowledge/episodes', { params: { max_episodes } })).data,
+      deleteEpisode: async (episodeId) => (await client.delete(`/knowledge/episodes/${episodeId}`)).data,
+    },
+    dependencies: {
+      createCrossPlan: async (data) => (await client.post('/dependencies/cross-plan', data)).data,
+      listCrossPlan: async (planIds) => (await client.get('/dependencies/cross-plan', { params: { plan_ids: planIds.join(',') } })).data,
+      createExternal: async (data) => (await client.post('/dependencies/external', data)).data,
+    },
+    axiosInstance: client,
+  };
+}
+
 // Export API client functions
 // Export the axios instance for direct use
 const axiosInstance = apiClient;
@@ -769,5 +926,6 @@ module.exports = {
   context,
   graphiti,
   dependencies,
-  axiosInstance  // Export for direct API calls
+  axiosInstance,  // Export for direct API calls
+  createApiClient  // Factory for per-session clients (HTTP mode)
 };

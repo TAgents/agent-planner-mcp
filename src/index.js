@@ -3,6 +3,7 @@ const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { MCPHTTPServer } = require('./server-http');
 const { setupTools } = require('./tools');
+const { version } = require('../package.json');
 require('dotenv').config();
 
 /**
@@ -39,7 +40,7 @@ async function main() {
     const userApiToken = process.env.USER_API_TOKEN || process.env.API_TOKEN;
     console.error(`User API Token: ${userApiToken ? '***' + userApiToken.slice(-4) : 'NOT SET'}`);
     console.error(`MCP Server Name: ${process.env.MCP_SERVER_NAME || 'planning-system-mcp'}`);
-    console.error(`MCP Server Version: ${process.env.MCP_SERVER_VERSION || '0.3.1'}`);
+    console.error(`MCP Server Version: ${process.env.MCP_SERVER_VERSION || version}`);
 
     // Validate required environment variables
     if (!userApiToken) {
@@ -71,7 +72,7 @@ async function main() {
       // Stdio transport mode (default)
       const server = new Server({
         name: process.env.MCP_SERVER_NAME || "planning-system-mcp",
-        version: process.env.MCP_SERVER_VERSION || "0.3.1"
+        version: process.env.MCP_SERVER_VERSION || version
       }, {
         capabilities: {
           tools: {}

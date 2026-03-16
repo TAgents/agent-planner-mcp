@@ -17,9 +17,9 @@ This guide is optimized for AI agents using AgentPlanner MCP tools.
 
 ### Before Starting Work
 ```javascript
-get_context({ plan_id: "..." })
+get_plan_context({ plan_id: "..." })
 ```
-Returns: statistics, blocked tasks, in-progress tasks, ready tasks, knowledge
+Returns: plan overview, phase summaries, linked goals, knowledge
 
 ### Update Task Status
 ```javascript
@@ -244,7 +244,7 @@ Key rules:
 
 ## Best Practices
 
-1. **Use `get_task_context` instead of `get_context`** - progressive depth gives you exactly what you need
+1. **Use `get_task_context` for task work, `get_plan_context` for plan overview** - progressive depth gives you exactly what you need
 2. **Check dependencies before starting** - use `suggest_next_tasks` to find what's ready
 3. **Log as you work** - helps humans and future agents follow
 4. **Record important findings** - use `add_learning` after research, decisions, and discoveries

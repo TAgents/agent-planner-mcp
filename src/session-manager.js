@@ -89,6 +89,28 @@ class SessionManager {
   }
 
   /**
+   * Store a per-session API client
+   * @param {string} sessionId - Session ID
+   * @param {Object} apiClient - API client instance bound to user's token
+   */
+  setApiClient(sessionId, apiClient) {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.apiClient = apiClient;
+    }
+  }
+
+  /**
+   * Get the per-session API client
+   * @param {string} sessionId - Session ID
+   * @returns {Object|null} API client or null
+   */
+  getApiClient(sessionId) {
+    const session = this.sessions.get(sessionId);
+    return session?.apiClient || null;
+  }
+
+  /**
    * Check if a session is initialized
    * @param {string} sessionId - Session ID
    * @returns {boolean} True if initialized

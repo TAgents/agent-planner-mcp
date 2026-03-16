@@ -1,6 +1,28 @@
+---
+name: agentplanner
+description: "Agent orchestration skill for AgentPlanner — plan, execute, and track work with dependency management, knowledge graphs, and human oversight"
+version: 1.0.0
+homepage: https://agentplanner.io
+metadata:
+  openclaw:
+    emoji: "📋"
+    requires:
+      config:
+        - mcp-server-connected
+---
+
 # AgentPlanner — LLM Skill Reference
 
 You have access to the AgentPlanner MCP tools. AgentPlanner is a collaborative planning system where you track work, manage dependencies, and coordinate with humans. This document is your complete reference for using it effectively.
+
+> **Prerequisite:** This skill requires the `agent-planner-mcp` MCP server to be connected. You need an AgentPlanner account and an API token (create one at Settings → API Tokens on [agentplanner.io](https://agentplanner.io)).
+>
+> **Setup by client:**
+> - **Claude Code:** `npx agent-planner-mcp setup` (interactive — writes to `.mcp.json`)
+> - **Claude Desktop:** Add the MCP server in Settings → Developer → MCP Servers
+> - **Cursor / VS Code:** Add to your MCP config with `npx agent-planner-mcp` as the command
+> - **ChatGPT:** Use the HTTP endpoint at `https://agentplanner.io/mcp` with your API token
+> - **Other MCP clients:** Run `npx agent-planner-mcp` in stdio mode with env vars `API_URL` and `USER_API_TOKEN`
 
 ## When to Use AgentPlanner
 
@@ -88,7 +110,6 @@ Each suggestion includes a `reason` field explaining why it's recommended.
 | `delete_node` | Delete a node and its children |
 | `move_node` | Reparent or reorder a node |
 | `batch_update_nodes` | Update multiple nodes at once |
-| `get_node_context` | Detailed node info with children and logs |
 | `get_node_ancestry` | Path from root to node |
 
 When creating nodes:
@@ -128,12 +149,9 @@ Cycle detection is automatic — you cannot create a dependency that would form 
 
 | Tool | Purpose |
 |------|---------|
-| `get_task_context` | **Preferred.** Progressive context at depth 1-4 with token budgeting |
+| `get_task_context` | **Primary.** Progressive context at depth 1-4 with token budgeting |
+| `get_plan_context` | Plan overview with phase summaries and knowledge |
 | `suggest_next_tasks` | Find ready tasks based on dependency analysis |
-| `understand_context` | Full situation overview for a plan or goal (see Orientation) |
-| `get_plan_context` | Plan overview with phase summaries |
-| `get_agent_context` | Legacy leaf-up context (use `get_task_context` instead) |
-| `get_context` | Legacy full-plan context (use `get_task_context` or `understand_context` instead) |
 
 ### Logging
 
@@ -239,11 +257,10 @@ Use `get_recent_episodes` to review what has been learned recently across all pl
 | Tool | Purpose |
 |------|---------|
 | `get_started` | Guidance on how to use AgentPlanner — call when new or unsure how to approach a task |
-| `understand_context` | Comprehensive context about a plan or goal (purpose, state, activity, blockers, knowledge) |
 
 `get_started` accepts an optional `topic`: `overview`, `planning`, `execution`, `knowledge`, or `collaboration`.
 
-`understand_context` accepts `plan_id` and/or `goal_id` — use it before starting work on an unfamiliar plan or goal to get the full picture in one call.
+To understand a plan before starting, use `get_plan_context({ plan_id })` for the overview, then `get_task_context({ node_id, depth: 4 })` for deep context on a specific task.
 
 ### Other
 
@@ -303,9 +320,10 @@ When to use RPI vs. a single task:
 ### Starting a New Session
 ```
 1. get_my_tasks({}) → see what's in progress or blocked across all plans
-2. get_recent_episodes({ max_episodes: 10 }) → review what was learned/decided recently across all plans
-3. If resuming: get_task_context({ node_id: "...", depth: 2 })
-4. If starting fresh: suggest_next_tasks({ plan_id: "..." })
+2. get_recent_episodes({ max_episodes: 10 }) → review recent knowledge across all plans
+3. If resuming a task: get_task_context({ node_id: "...", depth: 2 })
+4. If orienting on a plan: get_plan_context({ plan_id: "..." })
+5. If starting fresh: suggest_next_tasks({ plan_id: "..." })
 ```
 
 ### Breaking Down a Large Task

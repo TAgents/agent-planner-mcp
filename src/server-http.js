@@ -15,7 +15,9 @@
 const express = require('express');
 const { SessionManager } = require('./session-manager');
 const { setupTools } = require('./tools');
+const { createApiClient } = require('./api-client');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+const { version } = require('../package.json');
 require('dotenv').config();
 
 // MCP Protocol Version
@@ -60,8 +62,8 @@ class MCPHTTPServer {
 
     // Protocol version validation
     this.app.use((req, res, next) => {
-      // Skip version check for health endpoint
-      if (req.path === '/health') {
+      // Skip version check for health and discovery endpoints
+      if (req.path === '/health' || req.path === '/.well-known/mcp.json') {
         return next();
       }
 
@@ -77,26 +79,55 @@ class MCPHTTPServer {
       next();
     });
 
+    // Authentication — require Authorization header on /mcp
+    this.app.use((req, res, next) => {
+      if (req.path === '/health' || req.path === '/.well-known/mcp.json') return next();
+
+      const authHeader = req.get('Authorization');
+      if (!authHeader) {
+        return res.status(401).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Authorization header required. Use "Authorization: Bearer <token>" or "Authorization: ApiKey <token>".' }
+        });
+      }
+
+      const parts = authHeader.split(' ');
+      if (parts.length !== 2 || !['Bearer', 'ApiKey'].includes(parts[0])) {
+        return res.status(401).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Invalid Authorization format. Use "Bearer <token>" or "ApiKey <token>".' }
+        });
+      }
+
+      // Store the raw token for per-session API client creation
+      req.userToken = parts[1];
+      next();
+    });
+
     // Origin validation for security (DNS rebinding protection)
     this.app.use((req, res, next) => {
-      // Skip origin check for health endpoint
-      if (req.path === '/health') {
+      // Skip origin check for health and discovery endpoints
+      if (req.path === '/health' || req.path === '/.well-known/mcp.json') {
         return next();
       }
+
+      // Skip origin check when running on 0.0.0.0 (production container behind nginx)
+      // Origin validation is DNS rebinding protection, not relevant for server-to-server MCP
+      if (this.host === '0.0.0.0') return next();
 
       const origin = req.get('Origin');
 
       // If Origin header is present, validate it
       if (origin) {
-        // For localhost binding, accept localhost origins
+        // Accept localhost and production origins
         const allowedOrigins = [
           'http://localhost',
           'http://127.0.0.1',
           `http://localhost:${this.port}`,
-          `http://127.0.0.1:${this.port}`
+          `http://127.0.0.1:${this.port}`,
+          'https://agentplanner.io'
         ];
 
-        const originUrl = new URL(origin);
         const isAllowed = allowedOrigins.some(allowed => origin.startsWith(allowed));
 
         if (!isAllowed) {
@@ -119,6 +150,25 @@ class MCPHTTPServer {
    * Setup Express routes
    */
   setupRoutes() {
+    // MCP discovery endpoint (no auth required)
+    this.app.get('/.well-known/mcp.json', (req, res) => {
+      res.json({
+        mcp_version: '2025-03-26',
+        server: {
+          name: 'agent-planner-mcp',
+          version,
+          description: 'AI agent orchestration with planning, dependencies, knowledge graphs, and human oversight'
+        },
+        endpoints: { mcp: '/mcp' },
+        authentication: {
+          type: 'api_key',
+          header: 'Authorization',
+          format: 'ApiKey <token>'
+        },
+        capabilities: { tools: true }
+      });
+    });
+
     // Health check endpoint
     this.app.get('/health', (req, res) => {
       const stats = this.sessionManager.getStats();
@@ -127,7 +177,7 @@ class MCPHTTPServer {
         version: MCP_PROTOCOL_VERSION,
         server: {
           name: process.env.MCP_SERVER_NAME || 'planning-tools',
-          version: process.env.MCP_SERVER_VERSION || '0.3.1'
+          version: process.env.MCP_SERVER_VERSION || version
         },
         sessions: {
           total: stats.total,
@@ -213,17 +263,21 @@ class MCPHTTPServer {
 
       if (isRequest) {
         // Handle JSON-RPC request
-        const response = await this.handleRequest(message, session, sessionId);
+        const response = await this.handleRequest(message, session, sessionId, req.userToken);
 
         // If this is an initialize request, create session and include session ID
         if (message.method === 'initialize' && response.result) {
           sessionId = this.sessionManager.createSession();
           this.sessionManager.initializeSession(sessionId, message.params?.capabilities);
 
+          // Create a per-session API client bound to this user's token
+          const sessionApiClient = createApiClient(req.userToken);
+          this.sessionManager.setApiClient(sessionId, sessionApiClient);
+
           // Set session ID header in response
           res.setHeader('Mcp-Session-Id', sessionId);
 
-          console.error(`Session initialized: ${sessionId}`);
+          console.error(`Session initialized: ${sessionId} (per-user token)`);
         }
 
         // Check if we should stream the response via SSE
@@ -377,19 +431,24 @@ class MCPHTTPServer {
   /**
    * Handle JSON-RPC request
    */
-  async handleRequest(message, session, sessionId) {
+  async handleRequest(message, session, sessionId, userToken) {
     // Create MCP server instance for this request
     const mcpServer = new Server({
       name: process.env.MCP_SERVER_NAME || 'planning-tools',
-      version: process.env.MCP_SERVER_VERSION || '0.3.1'
+      version: process.env.MCP_SERVER_VERSION || version
     }, {
       capabilities: {
         tools: {}
       }
     });
 
-    // Setup tools on the server
-    setupTools(mcpServer);
+    // Get per-session API client (bound to user's token), or create one for initialize requests
+    const sessionApiClient = session
+      ? this.sessionManager.getApiClient(sessionId)
+      : (userToken ? createApiClient(userToken) : null);
+
+    // Setup tools with the per-session API client
+    setupTools(mcpServer, sessionApiClient);
 
     // Process the request through MCP server
     try {

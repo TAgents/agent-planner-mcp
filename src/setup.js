@@ -124,7 +124,7 @@ function createEnvFile(config) {
 API_URL=${config.apiUrl}
 USER_API_TOKEN=${config.token}
 MCP_SERVER_NAME=planning-system
-MCP_SERVER_VERSION=0.2.0
+MCP_SERVER_VERSION=${require('../package.json').version}
 NODE_ENV=production
 `;
 

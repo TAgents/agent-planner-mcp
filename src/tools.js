@@ -10,7 +10,7 @@
  */
 
 const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
-const apiClient = require('./api-client');
+const defaultApiClient = require('./api-client');
 
 const APP_URL = (process.env.APP_URL || 'https://agentplanner.io').replace(/\/$/, '');
 function buildPlanUrl(planId) { return `${APP_URL}/app/plans/${planId}`; }
@@ -47,8 +47,10 @@ function formatResponse(data) {
 /**
  * Setup tools for the MCP server
  * @param {Server} server - MCP server instance
+ * @param {Object} [apiClientOverride] - Per-session API client (HTTP mode). Falls back to default (stdio mode).
  */
-function setupTools(server) {
+function setupTools(server, apiClientOverride) {
+  const apiClient = apiClientOverride || defaultApiClient;
   // Suppress console logs when not in debug mode
   if (process.env.NODE_ENV !== 'development') {
     // Silent mode for production
@@ -180,18 +182,6 @@ function setupTools(server) {
         // CONTEXT LOADING - Get everything you need
         // Use before starting work on a plan/goal
         // ========================================
-        {
-          name: "get_context",
-          description: "Load EVERYTHING you need to work on a plan or goal: structure, status, progress, blocked tasks, recent activity, and relevant knowledge. Call this FIRST before starting work.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              plan_id: { type: "string", description: "Plan to get context for" },
-              goal_id: { type: "string", description: "Goal to get context for" },
-              include_knowledge: { type: "boolean", default: true, description: "Include relevant knowledge entries" }
-            }
-          }
-        },
         {
           name: "get_my_tasks",
           description: "Get tasks that need attention - blocked tasks, in-progress tasks, and next tasks to start. Perfect for status check-ins.",
@@ -473,18 +463,6 @@ function setupTools(server) {
           }
         },
         {
-          name: "get_node_context",
-          description: "Get comprehensive context for a node including children and logs",
-          inputSchema: {
-            type: "object",
-            properties: {
-              plan_id: { type: "string", description: "Plan ID" },
-              node_id: { type: "string", description: "Node ID" }
-            },
-            required: ["plan_id", "node_id"]
-          }
-        },
-        {
           name: "get_node_ancestry",
           description: "Get the path from root to a specific node",
           inputSchema: {
@@ -740,7 +718,7 @@ function setupTools(server) {
         // ===== PLAN STRUCTURE & SUMMARY =====
         {
           name: "get_plan_structure",
-          description: "Get the hierarchical structure of a plan with minimal fields (id, parent_id, node_type, title, status, order_index). Use get_node_context for detailed information about specific nodes.",
+          description: "Get the hierarchical structure of a plan with minimal fields (id, parent_id, node_type, title, status, order_index). Use get_task_context for detailed information about specific nodes.",
           inputSchema: {
             type: "object",
             properties: {
@@ -768,32 +746,8 @@ function setupTools(server) {
         
         // ===== AGENT CONTEXT TOOLS (Leaf-up context loading) =====
         {
-          name: "get_agent_context",
-          description: "Get focused context for a specific task/node. Uses leaf-up traversal - returns only the relevant path from the node to root, not the entire plan tree. Best for agents starting work on a specific task.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              node_id: { 
-                type: "string", 
-                description: "Task or phase node ID to get context for" 
-              },
-              include_knowledge: { 
-                type: "boolean", 
-                description: "Include knowledge entries from relevant scopes (plan, goals, org)",
-                default: true
-              },
-              include_siblings: { 
-                type: "boolean", 
-                description: "Include sibling tasks in the same phase",
-                default: false
-              }
-            },
-            required: ["node_id"]
-          }
-        },
-        {
           name: "get_plan_context",
-          description: "Get plan-level context overview. Returns plan details, phase summaries (not full tree), linked goals, and organization. Use get_agent_context for task-focused work.",
+          description: "Get plan-level context overview. Returns plan details, phase summaries (not full tree), linked goals, and organization. Use get_task_context for task-focused work.",
           inputSchema: {
             type: "object",
             properties: {
@@ -1145,18 +1099,6 @@ function setupTools(server) {
             }
           }
         },
-        {
-          name: "understand_context",
-          description: "Get comprehensive context about a plan or goal - its purpose, current state, recent activity, blocked tasks, and relevant knowledge. Use this BEFORE starting work to understand the full situation.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              plan_id: { type: "string", description: "Plan ID to understand" },
-              goal_id: { type: "string", description: "Goal ID to understand" },
-              include_knowledge: { type: "boolean", description: "Include relevant knowledge entries", default: true }
-            }
-          }
-        }
       ]
     };
   });
@@ -1238,7 +1180,7 @@ function setupTools(server) {
           next_steps: [
             "Use quick_status to update task progress",
             "Use quick_log to document your work",
-            "Use get_context to load full plan details"
+            "Use get_plan_context to load full plan details"
           ]
         });
       }
@@ -1374,88 +1316,7 @@ function setupTools(server) {
       // ========================================
       // CONTEXT LOADING IMPLEMENTATIONS
       // ========================================
-      
-      if (name === "get_context") {
-        // Redirect to understand_context implementation (same functionality)
-        const { plan_id, goal_id, include_knowledge = true } = args;
-        
-        if (!plan_id && !goal_id) {
-          return formatResponse({
-            error: "Provide either plan_id or goal_id to get context",
-            suggestion: "Use list_plans or list_goals to find IDs"
-          });
-        }
-        
-        const context = {
-          retrieved_at: new Date().toISOString()
-        };
-        
-        // Get goal context
-        if (goal_id) {
-          try {
-            context.goal = await apiClient.goals.get(goal_id);
-            if (include_knowledge) {
-              try {
-                const graphResult = await apiClient.graphiti.graphSearch({ query: context.goal?.title || '', max_results: 10 });
-                context.goal_knowledge = graphResult?.results?.facts || [];
-              } catch (e) {}
-            }
-          } catch (e) {
-            context.goal_error = e.message;
-          }
-        }
-        
-        // Get plan context
-        if (plan_id) {
-          try {
-            context.plan = await apiClient.plans.getPlan(plan_id);
-            context.plan_url = buildPlanUrl(plan_id);
-            
-            const nodes = await apiClient.nodes.getNodes(plan_id);
-            context.statistics = calculatePlanStatistics(nodes);
-            context.progress_percentage = context.statistics.total > 0 
-              ? ((context.statistics.status_counts.completed / context.statistics.total) * 100).toFixed(1) + '%'
-              : '0%';
-            
-            const flatNodes = flattenNodes(nodes);
-            context.needs_attention = {
-              blocked: flatNodes.filter(n => n.status === 'blocked').map(n => ({ 
-                id: n.id, title: n.title, type: n.node_type
-              })),
-              in_progress: flatNodes.filter(n => n.status === 'in_progress').map(n => ({ 
-                id: n.id, title: n.title, type: n.node_type
-              })),
-              ready_to_start: flatNodes
-                .filter(n => n.node_type === 'task' && n.status === 'not_started')
-                .slice(0, 5)
-                .map(n => ({ id: n.id, title: n.title }))
-            };
-            
-            try {
-              const activity = await apiClient.activity.getPlanActivity(plan_id);
-              context.recent_activity = (activity || []).slice(0, 5);
-            } catch (e) {}
-            
-            if (include_knowledge) {
-              try {
-                const graphResult = await apiClient.graphiti.graphSearch({ query: context.plan?.title || '', max_results: 10 });
-                context.plan_knowledge = graphResult?.results?.facts || [];
-              } catch (e) {}
-            }
-          } catch (e) {
-            context.plan_error = e.message;
-          }
-        }
-        
-        context.recommendation = context.needs_attention?.blocked?.length > 0 
-          ? "⚠️ There are blocked tasks that need attention first"
-          : context.needs_attention?.in_progress?.length > 0
-            ? "Continue working on the in-progress tasks"
-            : "Pick a task from ready_to_start to begin";
-            
-        return formatResponse(context);
-      }
-      
+
       if (name === "get_my_tasks") {
         const { plan_id, status = ["blocked", "in_progress"] } = args;
         
@@ -1709,7 +1570,7 @@ function setupTools(server) {
           phases: createdPhases,
           tasks: createdTasks,
           next_steps: [
-            "Use get_context to review the imported plan",
+            "Use get_plan_context to review the imported plan",
             "Use quick_status to update task progress"
           ]
         });
@@ -1898,17 +1759,6 @@ function setupTools(server) {
           }
           throw error;
         }
-      }
-      
-      if (name === "get_node_context") {
-        const { plan_id, node_id } = args;
-        
-        // Get node with context
-        const response = await apiClient.axiosInstance.get(
-          `/plans/${plan_id}/nodes/${node_id}/context`
-        );
-        
-        return formatResponse(response.data);
       }
       
       if (name === "get_node_ancestry") {
@@ -2120,17 +1970,6 @@ function setupTools(server) {
       }
       
       // ===== AGENT CONTEXT TOOLS =====
-      if (name === "get_agent_context") {
-        const { node_id, include_knowledge = true, include_siblings = false } = args;
-        
-        const result = await apiClient.context.getNodeContext(node_id, {
-          include_knowledge,
-          include_siblings
-        });
-        
-        return formatResponse(result);
-      }
-      
       if (name === "get_plan_context") {
         const { plan_id, include_knowledge = true } = args;
         
@@ -2383,7 +2222,7 @@ function setupTools(server) {
             recommended_workflow: [
               "1. Check list_goals to understand current objectives",
               "2. Use list_plans to see existing plans",
-              "3. Before working on a plan, use understand_context to get the full picture",
+              "3. Before working on a plan, use get_plan_context to get the full picture",
               "4. Update task statuses as you work (update_node with status)",
               "5. Store important decisions and learnings using add_learning",
               "6. Check recall_knowledge before making decisions to see past context"
@@ -2484,90 +2323,6 @@ function setupTools(server) {
         return formatResponse(guides[topic] || guides.overview);
       }
 
-      if (name === "understand_context") {
-        const { plan_id, goal_id, include_knowledge = true } = args;
-        
-        if (!plan_id && !goal_id) {
-          return formatResponse({
-            error: "Provide either plan_id or goal_id to get context"
-          });
-        }
-        
-        const context = {
-          retrieved_at: new Date().toISOString()
-        };
-        
-        // Get goal context
-        if (goal_id) {
-          try {
-            context.goal = await apiClient.goals.get(goal_id);
-            
-            // Get related knowledge if available
-            if (include_knowledge) {
-              try {
-                const graphResult = await apiClient.graphiti.graphSearch({ query: context.goal?.title || '', max_results: 10 });
-                context.goal_knowledge = graphResult?.results?.facts || [];
-              } catch (e) {
-                // Knowledge fetch failed, continue without it
-              }
-            }
-          } catch (e) {
-            context.goal_error = e.message;
-          }
-        }
-        
-        // Get plan context
-        if (plan_id) {
-          try {
-            context.plan = await apiClient.plans.getPlan(plan_id);
-            
-            const nodes = await apiClient.nodes.getNodes(plan_id);
-            context.statistics = calculatePlanStatistics(nodes);
-            context.progress_percentage = context.statistics.total > 0 
-              ? ((context.statistics.status_counts.completed / context.statistics.total) * 100).toFixed(1) + '%'
-              : '0%';
-            
-            // Get blocked and in-progress tasks for attention
-            const flatNodes = flattenNodes(nodes);
-            context.needs_attention = {
-              blocked: flatNodes.filter(n => n.status === 'blocked').map(n => ({ 
-                id: n.id, 
-                title: n.title,
-                type: n.node_type
-              })),
-              in_progress: flatNodes.filter(n => n.status === 'in_progress').map(n => ({ 
-                id: n.id, 
-                title: n.title,
-                type: n.node_type
-              }))
-            };
-            
-            // Get recent activity
-            try {
-              const activity = await apiClient.activity.getPlanActivity(plan_id);
-              context.recent_activity = (activity || []).slice(0, 5);
-            } catch (e) {
-              // Activity fetch failed, continue without it
-            }
-            
-            // Get related knowledge if available
-            if (include_knowledge) {
-              try {
-                const graphResult = await apiClient.graphiti.graphSearch({ query: context.plan?.title || '', max_results: 10 });
-                context.plan_knowledge = graphResult?.results?.facts || [];
-              } catch (e) {
-                // Knowledge fetch failed, continue without it
-              }
-            }
-          } catch (e) {
-            context.plan_error = e.message;
-          }
-        }
-        
-        context.recommendation = "Review the statistics, needs_attention, and knowledge entries before starting work.";
-        return formatResponse(context);
-      }
-      
       // ===== GOALS HEALTH DASHBOARD =====
       if (name === "check_goals_health") {
         const { status_filter } = args || {};

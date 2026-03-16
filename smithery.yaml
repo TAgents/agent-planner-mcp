@@ -1,0 +1,12 @@
+name: agent-planner-mcp
+description: "AI agent orchestration with planning, dependencies, knowledge graphs"
+type: stdio
+command: npx
+args: ["-y", "agent-planner-mcp"]
+env:
+  USER_API_TOKEN:
+    description: "API token from agentplanner.io"
+    required: true
+  API_URL:
+    description: "AgentPlanner API URL"
+    default: "https://agentplanner.io/api"

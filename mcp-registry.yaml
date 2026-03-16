@@ -1,0 +1,26 @@
+id: tagents/agent-planner
+name: AgentPlanner
+description: "Agent orchestration platform — plan, track, and execute work with dependency management, knowledge graphs, and human oversight"
+vendor: TalkingAgents
+source_url: https://github.com/TAgents/agent-planner-mcp
+homepage: https://agentplanner.io
+license: MIT
+packages:
+  npm:
+    name: agent-planner-mcp
+    command: npx
+    args: ["-y", "agent-planner-mcp"]
+    env:
+      USER_API_TOKEN:
+        description: "API token from agentplanner.io Settings > API Tokens"
+        required: true
+      API_URL:
+        description: "AgentPlanner API URL"
+        default: "https://agentplanner.io/api"
+remote:
+  url: https://agentplanner.io/mcp
+  transport: streamable-http
+  authentication:
+    type: api_key
+    header: Authorization
+    format: "ApiKey {token}"

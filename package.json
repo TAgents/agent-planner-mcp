@@ -1,7 +1,7 @@
 {
   "name": "agent-planner-mcp",
-  "version": "0.5.0",
-  "description": "MCP server interface for the Planning System API",
+  "version": "0.6.0",
+  "description": "MCP server for AgentPlanner — AI agent orchestration with planning, dependencies, knowledge graphs, and human oversight",
   "main": "src/index.js",
   "bin": {
     "agent-planner-mcp": "src/cli.js"
@@ -19,11 +19,21 @@
   },
   "keywords": [
     "mcp",
+    "mcp-server",
     "model-context-protocol",
     "planning",
     "claude",
+    "chatgpt",
+    "cursor",
+    "windsurf",
+    "cline",
     "ai",
-    "agent-planner"
+    "agent-planner",
+    "agent-orchestration",
+    "project-management",
+    "task-management",
+    "knowledge-graph",
+    "dependency-graph"
   ],
   "author": "TalkingAgents",
   "license": "MIT",
@@ -33,7 +43,7 @@
   },
   "homepage": "https://agentplanner.io",
   "bugs": {
-    "url": "https://github.com/talkingagents/agent-planner-mcp/issues"
+    "url": "https://github.com/TAgents/agent-planner-mcp/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.8.0",
@@ -54,8 +64,9 @@
   },
   "files": [
     "src/",
-    "claude-code/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "SKILL.md",
+    "AGENT_GUIDE.md"
   ]
 }
