@@ -42,12 +42,9 @@ async function main() {
     console.error(`MCP Server Name: ${process.env.MCP_SERVER_NAME || 'planning-system-mcp'}`);
     console.error(`MCP Server Version: ${process.env.MCP_SERVER_VERSION || version}`);
 
-    // Validate required environment variables
-    if (!userApiToken) {
-      throw new Error('USER_API_TOKEN environment variable is required. Please generate one from the Agent Planner UI and set it in .env file.');
-    }
-
     if (transport === 'http') {
+      // HTTP mode: tokens come from the Authorization header on each request
+      // No USER_API_TOKEN needed — per-session clients are created in server-http.js
       // HTTP/SSE transport mode
       const httpServer = new MCPHTTPServer({
         port: process.env.PORT || 3100,
@@ -69,7 +66,11 @@ async function main() {
         process.exit(0);
       });
     } else {
-      // Stdio transport mode (default)
+      // Stdio transport mode (default) — requires USER_API_TOKEN since there's no HTTP request
+      if (!userApiToken) {
+        throw new Error('USER_API_TOKEN environment variable is required for stdio mode. Please generate one from the Agent Planner UI and set it in .env file.');
+      }
+
       const server = new Server({
         name: process.env.MCP_SERVER_NAME || "planning-system-mcp",
         version: process.env.MCP_SERVER_VERSION || version
