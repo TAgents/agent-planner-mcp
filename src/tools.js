@@ -285,14 +285,19 @@ function setupTools(server, apiClientOverride) {
         // ===== PLAN MANAGEMENT TOOLS =====
         {
           name: "list_plans",
-          description: "List all plans or filter by status",
+          description: "List plans. By default excludes completed/archived plans — set include_completed to true to see all.",
           inputSchema: {
             type: "object",
             properties: {
-              status: { 
-                type: "string", 
+              status: {
+                type: "string",
                 description: "Optional filter by plan status",
                 enum: ["draft", "active", "completed", "archived"]
+              },
+              include_completed: {
+                type: "boolean",
+                description: "If true, include completed and archived plans (default: false)",
+                default: false
               }
             }
           }
@@ -815,15 +820,20 @@ function setupTools(server, apiClientOverride) {
         // ===== GOAL TOOLS =====
         {
           name: "list_goals",
-          description: "List goals, optionally filtered by organization or status",
+          description: "List goals. By default returns only active goals — set include_inactive to true to see all.",
           inputSchema: {
             type: "object",
             properties: {
               organization_id: { type: "string", description: "Filter by organization ID" },
-              status: { 
-                type: "string", 
+              status: {
+                type: "string",
                 description: "Filter by status",
                 enum: ["active", "achieved", "at_risk", "abandoned"]
+              },
+              include_inactive: {
+                type: "boolean",
+                description: "If true, include achieved/paused/abandoned goals (default: false)",
+                default: false
               }
             }
           }
@@ -1655,9 +1665,16 @@ function setupTools(server, apiClientOverride) {
       
       // ===== PLAN MANAGEMENT =====
       if (name === "list_plans") {
-        const { status } = args;
+        const { status, include_completed } = args;
         const plans = await apiClient.plans.getPlans();
-        const filteredPlans = status ? plans.filter(p => p.status === status) : plans;
+        let filteredPlans;
+        if (status) {
+          filteredPlans = plans.filter(p => p.status === status);
+        } else if (!include_completed) {
+          filteredPlans = plans.filter(p => p.status !== 'completed' && p.status !== 'archived');
+        } else {
+          filteredPlans = plans;
+        }
         return formatResponse(filteredPlans);
       }
       
@@ -2006,8 +2023,9 @@ function setupTools(server, apiClientOverride) {
       
       // ===== GOAL TOOLS =====
       if (name === "list_goals") {
-        const { organization_id, status } = args;
-        const result = await apiClient.goals.list({ organization_id, status });
+        const { organization_id, status, include_inactive } = args;
+        const effectiveStatus = status || (!include_inactive ? 'active' : undefined);
+        const result = await apiClient.goals.list({ organization_id, status: effectiveStatus });
         return formatResponse(result);
       }
       
