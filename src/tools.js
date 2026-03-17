@@ -858,21 +858,10 @@ function setupTools(server, apiClientOverride) {
               organization_id: { type: "string", description: "Organization ID" },
               title: { type: "string", description: "Goal title" },
               description: { type: "string", description: "Goal description" },
-              success_metrics: { 
-                type: "array", 
-                description: "Success metrics array [{metric, target, current, unit}]",
-                items: {
-                  type: "object",
-                  properties: {
-                    metric: { type: "string" },
-                    target: { type: "number" },
-                    current: { type: "number" },
-                    unit: { type: "string" }
-                  }
-                }
-              },
-              time_horizon: { type: "string", description: "Target date (ISO format)" },
-              github_repo_url: { type: "string", description: "Related GitHub repo URL" }
+              type: { type: "string", enum: ["outcome", "constraint", "metric", "principle"], description: "Goal type (default: outcome)" },
+              success_criteria: { type: "object", description: "Success criteria as JSON" },
+              priority: { type: "number", description: "Priority (higher = more important, default: 0)" },
+              parent_goal_id: { type: "string", description: "Parent goal ID for hierarchy" }
             },
             required: ["organization_id", "title"]
           }
@@ -886,13 +875,15 @@ function setupTools(server, apiClientOverride) {
               goal_id: { type: "string", description: "Goal ID" },
               title: { type: "string", description: "New title" },
               description: { type: "string", description: "New description" },
-              status: { 
-                type: "string", 
+              type: { type: "string", enum: ["outcome", "constraint", "metric", "principle"], description: "Goal type" },
+              status: {
+                type: "string",
                 description: "New status",
-                enum: ["active", "achieved", "at_risk", "abandoned"]
+                enum: ["active", "achieved", "paused", "abandoned"]
               },
-              success_metrics: { type: "array", description: "Updated metrics" },
-              time_horizon: { type: "string", description: "New target date" }
+              success_criteria: { type: "object", description: "Success criteria as JSON" },
+              priority: { type: "number", description: "Priority (higher = more important)" },
+              parent_goal_id: { type: "string", description: "Parent goal ID for hierarchy" }
             },
             required: ["goal_id"]
           }
@@ -2036,20 +2027,24 @@ function setupTools(server, apiClientOverride) {
       }
       
       if (name === "create_goal") {
-        const { organization_id, title, description, success_metrics, time_horizon, github_repo_url } = args;
+        const { organization_id, title, description, type, success_criteria, priority, parent_goal_id } = args;
         const result = await apiClient.goals.create({
           organization_id,
           title,
           description,
-          success_metrics,
-          time_horizon,
-          github_repo_url
+          type: type || 'outcome',
+          successCriteria: success_criteria || null,
+          priority: priority || 0,
+          parentGoalId: parent_goal_id || null,
         });
         return formatResponse(result);
       }
       
       if (name === "update_goal") {
-        const { goal_id, ...updateData } = args;
+        const { goal_id, parent_goal_id, success_criteria, ...rest } = args;
+        const updateData = { ...rest };
+        if (parent_goal_id !== undefined) updateData.parentGoalId = parent_goal_id;
+        if (success_criteria !== undefined) updateData.successCriteria = success_criteria;
         const result = await apiClient.goals.update(goal_id, updateData);
         return formatResponse(result);
       }

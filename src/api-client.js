@@ -552,45 +552,47 @@ const goals = {
     return response.data;
   },
   
-  updateMetrics: async (goalId, metrics) => {
-    const response = await apiClient.put(`/goals/${goalId}/metrics`, { metrics });
-    return response.data;
-  },
-  
   delete: async (goalId) => {
     const response = await apiClient.delete(`/goals/${goalId}`);
     return response.data;
   },
-  
+
   linkPlan: async (goalId, planId) => {
-    const response = await apiClient.post(`/goals/${goalId}/plans/${planId}`);
+    const response = await apiClient.post(`/goals/${goalId}/links`, {
+      linkedType: 'plan', linkedId: planId
+    });
     return response.data;
   },
-  
+
   unlinkPlan: async (goalId, planId) => {
-    const response = await apiClient.delete(`/goals/${goalId}/plans/${planId}`);
+    const goal = await apiClient.get(`/goals/${goalId}`);
+    const link = (goal.data.links || []).find(
+      l => l.linkedType === 'plan' && l.linkedId === planId
+    );
+    if (!link) return { success: false, message: 'Link not found' };
+    const response = await apiClient.delete(`/goals/${goalId}/links/${link.id}`);
     return response.data;
   },
 
   // v2 goal-dependency endpoints
   getPath: async (goalId, maxDepth) => {
     const params = maxDepth ? `?max_depth=${maxDepth}` : '';
-    const response = await apiClient.get(`/goals/v2/${goalId}/path${params}`);
+    const response = await apiClient.get(`/goals/${goalId}/path${params}`);
     return response.data;
   },
 
   getProgress: async (goalId) => {
-    const response = await apiClient.get(`/goals/v2/${goalId}/progress`);
+    const response = await apiClient.get(`/goals/${goalId}/progress`);
     return response.data;
   },
 
   listAchievers: async (goalId) => {
-    const response = await apiClient.get(`/goals/v2/${goalId}/achievers`);
+    const response = await apiClient.get(`/goals/${goalId}/achievers`);
     return response.data;
   },
 
   addAchiever: async (goalId, sourceNodeId, weight) => {
-    const response = await apiClient.post(`/goals/v2/${goalId}/achievers`, {
+    const response = await apiClient.post(`/goals/${goalId}/achievers`, {
       source_node_id: sourceNodeId,
       weight: weight ?? 1,
     });
@@ -598,17 +600,17 @@ const goals = {
   },
 
   removeAchiever: async (goalId, depId) => {
-    const response = await apiClient.delete(`/goals/v2/${goalId}/achievers/${depId}`);
+    const response = await apiClient.delete(`/goals/${goalId}/achievers/${depId}`);
     return response.data;
   },
 
   getKnowledgeGaps: async (goalId) => {
-    const response = await apiClient.get(`/goals/v2/${goalId}/knowledge-gaps`);
+    const response = await apiClient.get(`/goals/${goalId}/knowledge-gaps`);
     return response.data;
   },
 
   getDashboard: async () => {
-    const response = await apiClient.get('/goals/v2/dashboard');
+    const response = await apiClient.get('/goals/dashboard');
     return response.data;
   },
 };
@@ -866,17 +868,21 @@ function createApiClient(token) {
       get: async (goalId) => (await client.get(`/goals/${goalId}`)).data,
       create: async (data) => (await client.post('/goals', data)).data,
       update: async (goalId, data) => (await client.put(`/goals/${goalId}`, data)).data,
-      updateMetrics: async (goalId, metrics) => (await client.put(`/goals/${goalId}/metrics`, { metrics })).data,
       delete: async (goalId) => (await client.delete(`/goals/${goalId}`)).data,
-      linkPlan: async (goalId, planId) => (await client.post(`/goals/${goalId}/plans/${planId}`)).data,
-      unlinkPlan: async (goalId, planId) => (await client.delete(`/goals/${goalId}/plans/${planId}`)).data,
-      getPath: async (goalId, maxDepth) => { const p = maxDepth ? `?max_depth=${maxDepth}` : ''; return (await client.get(`/goals/v2/${goalId}/path${p}`)).data; },
-      getProgress: async (goalId) => (await client.get(`/goals/v2/${goalId}/progress`)).data,
-      listAchievers: async (goalId) => (await client.get(`/goals/v2/${goalId}/achievers`)).data,
-      addAchiever: async (goalId, sourceNodeId, weight) => (await client.post(`/goals/v2/${goalId}/achievers`, { source_node_id: sourceNodeId, weight: weight ?? 1 })).data,
-      removeAchiever: async (goalId, depId) => (await client.delete(`/goals/v2/${goalId}/achievers/${depId}`)).data,
-      getKnowledgeGaps: async (goalId) => (await client.get(`/goals/v2/${goalId}/knowledge-gaps`)).data,
-      getDashboard: async () => (await client.get('/goals/v2/dashboard')).data,
+      linkPlan: async (goalId, planId) => (await client.post(`/goals/${goalId}/links`, { linkedType: 'plan', linkedId: planId })).data,
+      unlinkPlan: async (goalId, planId) => {
+        const goal = await client.get(`/goals/${goalId}`);
+        const link = (goal.data.links || []).find(l => l.linkedType === 'plan' && l.linkedId === planId);
+        if (!link) return { success: false, message: 'Link not found' };
+        return (await client.delete(`/goals/${goalId}/links/${link.id}`)).data;
+      },
+      getPath: async (goalId, maxDepth) => { const p = maxDepth ? `?max_depth=${maxDepth}` : ''; return (await client.get(`/goals/${goalId}/path${p}`)).data; },
+      getProgress: async (goalId) => (await client.get(`/goals/${goalId}/progress`)).data,
+      listAchievers: async (goalId) => (await client.get(`/goals/${goalId}/achievers`)).data,
+      addAchiever: async (goalId, sourceNodeId, weight) => (await client.post(`/goals/${goalId}/achievers`, { source_node_id: sourceNodeId, weight: weight ?? 1 })).data,
+      removeAchiever: async (goalId, depId) => (await client.delete(`/goals/${goalId}/achievers/${depId}`)).data,
+      getKnowledgeGaps: async (goalId) => (await client.get(`/goals/${goalId}/knowledge-gaps`)).data,
+      getDashboard: async () => (await client.get('/goals/dashboard')).data,
     },
     context: {
       getNodeContext: async (nodeId, options = {}) => {
