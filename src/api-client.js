@@ -613,6 +613,11 @@ const goals = {
     const response = await apiClient.get('/goals/dashboard');
     return response.data;
   },
+
+  getQuality: async (goalId) => {
+    const response = await apiClient.get(`/goals/${goalId}/quality`);
+    return response.data;
+  },
 };
 
 /**
@@ -919,6 +924,13 @@ function createApiClient(token) {
 // Export the axios instance for direct use
 const axiosInstance = apiClient;
 
+// ─── Coherence ────────────────────────────────────────────────
+const coherence = {
+  getPending: () => apiClient.get('/coherence/pending').then(r => r.data),
+  runCheck: (planId, goalId) => apiClient.post(`/plans/${planId}/coherence/check`, goalId ? { goal_id: goalId } : {}).then(r => r.data),
+  getPlanCoherence: (planId) => apiClient.get(`/plans/${planId}/coherence`).then(r => r.data),
+};
+
 module.exports = {
   plans,
   nodes,
@@ -932,6 +944,7 @@ module.exports = {
   context,
   graphiti,
   dependencies,
+  coherence,
   axiosInstance,  // Export for direct API calls
   createApiClient  // Factory for per-session clients (HTTP mode)
 };

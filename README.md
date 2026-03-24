@@ -149,6 +149,10 @@ Add the same JSON config to your Cline MCP settings in VS Code.
 - `claim_task` / `release_task` - Task locking
 - `share_plan` - Collaboration management
 
+### Alignment & Review
+- `check_coherence_pending` - See which plans/goals need alignment review (staleness check)
+- `run_coherence_check` - Evaluate plan quality and stamp as reviewed
+
 ## LLM Skill Reference
 
 See **[SKILL.md](./SKILL.md)** for a complete reference designed to be consumed by LLMs. Include it in system prompts or agent configurations to give any LLM full knowledge of how to use AgentPlanner tools effectively.

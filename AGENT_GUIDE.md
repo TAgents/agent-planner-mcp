@@ -5,6 +5,8 @@ This guide is optimized for AI agents using AgentPlanner MCP tools.
 ## Core Workflow
 
 ```
+0. check_coherence_pending() → See if plans/goals need alignment review
+   → If stale items: run_coherence_check(plan_id) on each
 1. suggest_next_tasks(plan_id) → Find ready tasks (dependency-aware)
 2. get_task_context(node_id, depth=2) → Load progressive context
 3. Work on tasks (quick_status to track)
@@ -14,6 +16,16 @@ This guide is optimized for AI agents using AgentPlanner MCP tools.
 ```
 
 ## Essential Tools
+
+### Preflight: Alignment Check
+```javascript
+check_coherence_pending()
+// → Returns stale plans/goals that changed since last review
+
+run_coherence_check({ plan_id: "..." })
+// → Evaluates quality (coverage, specificity, ordering, knowledge)
+// → Stamps plan as reviewed, returns score breakdown
+```
 
 ### Before Starting Work
 ```javascript

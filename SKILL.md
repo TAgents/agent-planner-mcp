@@ -31,12 +31,43 @@ You have access to the AgentPlanner MCP tools. AgentPlanner is a collaborative p
 - You need to coordinate with humans on multi-step projects
 - You want to persist findings, decisions, or progress across sessions
 - You are asked to plan, research, or implement something as part of a tracked workflow
+- A user wants help defining or refining a goal
+
+## Goal Coaching
+
+When a user expresses an intent, objective, or want — help them turn it into a well-structured goal. Don't just create a goal from their words. Coach them through it:
+
+```
+1. Listen to the user's intent (however vague)
+2. recall_knowledge()         → Search for related context in the knowledge graph
+3. list_goals()               → Check for overlap with existing goals
+4. list_plans()               → Find related work that might link to this goal
+5. Propose a structured goal:
+   - Clear title
+   - Description explaining why this matters
+   - Success criteria with specific metrics + targets
+   - Linked plans (existing or suggest new ones)
+6. create_goal() + link plans
+7. assess_goal_quality()      → Check quality and get improvement suggestions
+8. Iterate with the user until quality is high
+```
+
+**What makes a good goal:**
+- **Clear** — has a title and description that explain what and why
+- **Measurable** — has success criteria with specific metrics and targets (e.g., "API latency < 100ms p99")
+- **Actionable** — has at least one linked plan with concrete tasks
+- **Knowledge-grounded** — related facts exist in the knowledge graph (if not, suggest researching first)
+- **Committed** — promoted from desire to intention when ready, with a time reference
+
+Use `assess_goal_quality(goal_id)` after creation to check quality and surface suggestions. Share the results with the user and help them address gaps.
 
 ## Workflow
 
 Follow this sequence when working on a plan:
 
 ```
+0. PREFLIGHT → check_coherence_pending to see if anything needs alignment review
+               ↳ If stale plans found, run_coherence_check on each before starting task work
 1. ORIENT    → suggest_next_tasks or get_task_context to understand what needs doing
 2. CLAIM     → quick_status to mark the task in_progress
 3. WORK      → Do the actual work (code, research, analysis, etc.)
@@ -45,6 +76,22 @@ Follow this sequence when working on a plan:
 5. COMPLETE  → quick_status to mark completed (auto-unblocks downstream tasks)
 6. NEXT      → suggest_next_tasks to find the next ready task
 ```
+
+### Preflight: Alignment Check
+
+Before diving into tasks, check if goals, plans, and knowledge are aligned:
+
+```
+check_coherence_pending()
+→ Returns stale plans/goals that changed since last review
+→ If stale items found:
+    run_coherence_check({ plan_id: "<plan_id>" })
+    → Evaluates quality (coverage, specificity, ordering, knowledge)
+    → Stamps the plan as reviewed
+    → Returns quality breakdown + coherence issues
+```
+
+This is a lightweight check (seconds, not minutes). Do it at the start of each work session. Skip if you already checked recently.
 
 ## Loading Context
 
@@ -204,6 +251,16 @@ Cross-plan dependencies work the same as regular dependencies (`blocks`, `requir
 |------|---------|
 | `claim_task` | Claim exclusive ownership of a task (prevents agent collisions) |
 | `release_task` | Release a previously claimed task |
+
+### Alignment & Review
+
+Check if goals, plans, and knowledge are aligned. Run as a preflight check before starting work.
+
+| Tool | Purpose |
+|------|---------|
+| `check_coherence_pending` | See what needs review — returns stale plans/goals that changed since last check |
+| `run_coherence_check` | Evaluate a plan's quality (coverage, specificity, ordering, knowledge) and stamp as reviewed |
+| `assess_goal_quality` | Check how well-defined a goal is (clarity, measurability, actionability, knowledge, commitment) |
 
 ### Knowledge (Temporal Knowledge Graph)
 

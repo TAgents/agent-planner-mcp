@@ -179,6 +179,41 @@ function setupTools(server, apiClientOverride) {
         },
 
         // ========================================
+        // COHERENCE - Check alignment across goals/plans/knowledge
+        // ========================================
+        {
+          name: "check_coherence_pending",
+          description: "Check what needs coherence review. Returns stale plans and goals that have changed since their last coherence check. Call this at the start of a maintenance cycle to discover what needs attention. Uses timestamp comparison (updated_at vs coherence_checked_at) — no expensive processing.",
+          inputSchema: {
+            type: "object",
+            properties: {}
+          }
+        },
+        {
+          name: "run_coherence_check",
+          description: "Run a coherence check on a specific plan. Evaluates quality (coverage, specificity, ordering, knowledge completeness), flags contradictions, and stamps the plan as checked. Returns quality breakdown with sub-scores and rationale.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "Plan ID to check" },
+              goal_id: { type: "string", description: "Optional goal ID to evaluate coverage against" }
+            },
+            required: ["plan_id"]
+          }
+        },
+        {
+          name: "assess_goal_quality",
+          description: "Assess how well-defined a goal is. Evaluates 5 dimensions: clarity (title+description), measurability (success criteria), actionability (linked plans), knowledge grounding (related facts), and commitment (desire vs intention, deadline). Returns score, dimension breakdown, and specific improvement suggestions. Use this when helping users define or refine goals.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "Goal ID to assess" }
+            },
+            required: ["goal_id"]
+          }
+        },
+
+        // ========================================
         // CONTEXT LOADING - Get everything you need
         // Use before starting work on a plan/goal
         // ========================================
@@ -2233,12 +2268,14 @@ function setupTools(server, apiClientOverride) {
               "Knowledge - Persistent storage for decisions, context, constraints, and learnings"
             ],
             recommended_workflow: [
-              "1. Check list_goals to understand current objectives",
-              "2. Use list_plans to see existing plans",
-              "3. Before working on a plan, use get_plan_context to get the full picture",
-              "4. Update task statuses as you work (update_node with status)",
-              "5. Store important decisions and learnings using add_learning",
-              "6. Check recall_knowledge before making decisions to see past context"
+              "1. PREFLIGHT: check_coherence_pending to see if any plans/goals need alignment review",
+              "   → If stale items found, run_coherence_check on each before starting task work",
+              "2. Check list_goals to understand current objectives",
+              "3. Use list_plans to see existing plans",
+              "4. Before working on a plan, use get_plan_context to get the full picture",
+              "5. Update task statuses as you work (update_node with status)",
+              "6. Store important decisions and learnings using add_learning",
+              "7. Check recall_knowledge before making decisions to see past context"
             ],
             quick_tips: [
               "Always capture WHY decisions were made, not just WHAT",
@@ -2372,6 +2409,43 @@ function setupTools(server, apiClientOverride) {
           success: true,
           message: `Task ${task_id} released`,
           ...result
+        });
+      }
+
+      // ===== COHERENCE =====
+      if (name === "check_coherence_pending") {
+        const result = await apiClient.coherence.getPending();
+        const totalStale = (result.stale_plans?.length || 0) + (result.stale_goals?.length || 0);
+        return formatResponse({
+          ...result,
+          tip: totalStale > 0
+            ? "Review stale items. For each stale plan, call run_coherence_check to evaluate quality and stamp as checked."
+            : "Everything is up to date. No coherence review needed."
+        });
+      }
+
+      if (name === "assess_goal_quality") {
+        const { goal_id } = args;
+        const result = await apiClient.goals.getQuality(goal_id);
+        const lowDims = Object.entries(result.dimensions || {})
+          .filter(([, v]) => v.score < 0.5)
+          .map(([k]) => k);
+        return formatResponse({
+          ...result,
+          tip: result.suggestions?.length > 0
+            ? `Goal needs improvement in: ${lowDims.join(', ') || 'minor areas'}. Follow the suggestions to strengthen it.`
+            : 'Goal is well-defined. Ready for agent execution.'
+        });
+      }
+
+      if (name === "run_coherence_check") {
+        const { plan_id, goal_id } = args;
+        const result = await apiClient.coherence.runCheck(plan_id, goal_id);
+        return formatResponse({
+          ...result,
+          tip: result.coherence_issues_count > 0
+            ? `${result.coherence_issues_count} coherence issues found. Review tasks with stale_beliefs or contradiction_detected status.`
+            : "Plan is coherent. Quality score and checked_at timestamp updated."
         });
       }
 
