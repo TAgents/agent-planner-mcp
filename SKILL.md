@@ -1,7 +1,7 @@
 ---
 name: agentplanner
-description: "Agent orchestration skill for AgentPlanner — plan, execute, and track work with dependency management, knowledge graphs, and human oversight"
-version: 1.0.0
+description: "Agent orchestration skill for AgentPlanner — BDI-aligned tools for state, goals, and committed actions with human oversight"
+version: 0.9.0
 homepage: https://agentplanner.io
 metadata:
   openclaw:
@@ -13,479 +13,172 @@ metadata:
 
 # AgentPlanner — LLM Skill Reference
 
-You have access to the AgentPlanner MCP tools. AgentPlanner is a collaborative planning system where you track work, manage dependencies, and coordinate with humans. This document is your complete reference for using it effectively.
+You have access to the AgentPlanner MCP tools. AgentPlanner is a collaborative planning system where you track work, manage dependencies, and coordinate with humans. This document is your complete reference.
 
-> **Prerequisite:** This skill requires the `agent-planner-mcp` MCP server to be connected. You need an AgentPlanner account and an API token (create one at Settings → API Tokens on [agentplanner.io](https://agentplanner.io)).
+> **Prerequisite:** This skill requires the `agent-planner-mcp` MCP server (v0.9.0+) to be connected. Create an API token at Settings → API Tokens on [agentplanner.io](https://agentplanner.io).
 >
 > **Setup by client:**
-> - **Claude Code:** `npx agent-planner-mcp setup` (interactive — writes to `.mcp.json`)
-> - **Claude Desktop:** Add the MCP server in Settings → Developer → MCP Servers
-> - **Cursor / VS Code:** Add to your MCP config with `npx agent-planner-mcp` as the command
-> - **ChatGPT:** Use the HTTP endpoint at `https://agentplanner.io/mcp` with your API token
-> - **Other MCP clients:** Run `npx agent-planner-mcp` in stdio mode with env vars `API_URL` and `USER_API_TOKEN`
+> - **Claude Desktop:** Download the [.mcpb](https://github.com/TAgents/agent-planner-mcp/releases/latest), double-click to install
+> - **Claude Code:** `npx agent-planner-mcp setup`
+> - **Cursor / VS Code:** Add `npx agent-planner-mcp` to your MCP config with env vars `API_URL` and `USER_API_TOKEN`
+> - **ChatGPT:** HTTP endpoint at `https://agentplanner.io/mcp`
 
-## When to Use AgentPlanner
+## The 15 tools, organized by intent
 
-- You are given a plan ID or task ID to work on
-- You need to break down complex work into trackable steps
-- You need to coordinate with humans on multi-step projects
-- You want to persist findings, decisions, or progress across sessions
-- You are asked to plan, research, or implement something as part of a tracked workflow
-- A user wants help defining or refining a goal
+AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desires (goal management), Intentions (committed actions). Each tool answers one whole agentic question and returns an `as_of` ISO 8601 timestamp.
 
-## Goal Coaching
+### Beliefs — what is the state of the world?
 
-When a user expresses an intent, objective, or want — help them turn it into a well-structured goal. Don't just create a goal from their words. Coach them through it:
+- `briefing` — bundled mission control state (goals + decisions + my tasks + activity + recommendation) in one call
+- `task_context` — single task at progressive depth 1-4 (task only → +neighborhood → +knowledge → +extended)
+- `goal_state` — single goal deep dive (details + quality + progress + bottlenecks + gaps)
+- `recall_knowledge` — universal knowledge graph query (facts, entities, recent episodes, contradictions)
+- `search` — text search across plans, nodes, content
+- `plan_analysis` — advanced reads: impact analysis, critical path, bottlenecks, coherence
 
-```
-1. Listen to the user's intent (however vague)
-2. recall_knowledge()         → Search for related context in the knowledge graph
-3. list_goals()               → Check for overlap with existing goals
-4. list_plans()               → Find related work that might link to this goal
-5. Propose a structured goal:
-   - Clear title
-   - Description explaining why this matters
-   - Success criteria with specific metrics + targets
-   - Linked plans (existing or suggest new ones)
-6. create_goal() + link plans
-7. assess_goal_quality()      → Check quality and get improvement suggestions
-8. Iterate with the user until quality is high
-```
+### Desires — what are we pursuing?
 
-**What makes a good goal:**
-- **Clear** — has a title and description that explain what and why
-- **Measurable** — has success criteria with specific metrics and targets (e.g., "API latency < 100ms p99")
-- **Actionable** — has at least one linked plan with concrete tasks
-- **Knowledge-grounded** — related facts exist in the knowledge graph (if not, suggest researching first)
-- **Committed** — promoted from desire to intention when ready, with a time reference
+- `list_goals` — goals with health rollup (`{ on_track, at_risk, stale, total }`)
+- `update_goal` — atomic goal update; subsumes link/unlink + achiever changes
 
-Use `assess_goal_quality(goal_id)` after creation to check quality and surface suggestions. Share the results with the user and help them address gaps.
+### Intentions — what am I committing to?
 
-## Workflow
+- `claim_next_task` — pick + claim + load context in one call (cornerstone for coding agents)
+- `update_task` — atomic state transition (status + log + claim release + optional learning)
+- `release_task` — explicit handoff
+- `queue_decision` — escalate to human (writes to real decisions table — do **not** misuse `add_learning` for this)
+- `resolve_decision` — pick up after human approval/deferral
+- `add_learning` — record a knowledge episode for future recall
 
-Follow this sequence when working on a plan:
+### Utility
+
+- `get_started` — dynamic reference; call this if you're new to AgentPlanner
+
+## Canonical workflows
+
+### Mission control loop (Cowork autopilot, scheduled tasks)
 
 ```
-0. PREFLIGHT → check_coherence_pending to see if anything needs alignment review
-               ↳ If stale plans found, run_coherence_check on each before starting task work
-1. ORIENT    → suggest_next_tasks or get_task_context to understand what needs doing
-2. CLAIM     → quick_status to mark the task in_progress
-3. WORK      → Do the actual work (code, research, analysis, etc.)
-4. LOG       → quick_log or add_log to record what you did and found
-               ↳ For important findings, also use add_learning to persist to the temporal knowledge graph
-5. COMPLETE  → quick_status to mark completed (auto-unblocks downstream tasks)
-6. NEXT      → suggest_next_tasks to find the next ready task
+1. briefing(scope='mission_control')
+   → Returns goal_health.summary, pending_decisions[], my_tasks, recent_activity, top_recommendation
+
+2. If top_recommendation: act on it. Otherwise iterate at_risk goals.
+
+3. For each chosen goal:
+   - goal_state(goal_id) for the bottleneck details
+   - If action is reversible (logging, status update, knowledge write):
+       update_task(...) or update_goal(...)
+   - If action needs human approval (publish, payment, strategy):
+       queue_decision({ title, context, smallest_input_needed, plan_id or node_id })
+
+4. add_learning(content, scope) to record what you did and why.
 ```
 
-### Preflight: Alignment Check
-
-Before diving into tasks, check if goals, plans, and knowledge are aligned:
+### Single-task coding session (Claude Code, ap CLI)
 
 ```
-check_coherence_pending()
-→ Returns stale plans/goals that changed since last review
-→ If stale items found:
-    run_coherence_check({ plan_id: "<plan_id>" })
-    → Evaluates quality (coverage, specificity, ordering, knowledge)
-    → Stamps the plan as reviewed
-    → Returns quality breakdown + coherence issues
+1. claim_next_task(scope={ plan_id }) → returns task with full context
+2. update_task(task_id, status='in_progress') when work begins
+3. ... do the work ...
+4. update_task(task_id, status='completed', log_message='...', add_learning='key insight')
 ```
 
-This is a lightweight check (seconds, not minutes). Do it at the start of each work session. Skip if you already checked recently.
+The `update_task` call is atomic — status change, log entry, claim release, and knowledge episode all in one round trip.
 
-## Loading Context
-
-Always load context before starting work. Use `get_task_context` — it gives you exactly the right amount of information based on depth level.
+### Multi-agent server (OpenClaw)
 
 ```
-get_task_context({ node_id: "<task_id>", depth: 2 })
+1. claim_next_task(scope={ plan_id }, ttl_minutes=30) → exclusive ownership
+2. task_context(task_id, depth=4) periodically to refresh as work progresses
+3. update_task(...) for state transitions
+4. release_task(task_id, message='handoff to teammate') for explicit handoff
 ```
 
-Depth levels:
-- **1** — Task only: node details + recent logs. Use when you already know the plan well.
-- **2** — Neighborhood: adds parent, siblings, direct dependencies (upstream/downstream). **Default and recommended.**
-- **3** — Knowledge: adds Graphiti temporal knowledge (entities, facts). Use when the task requires domain context.
-- **4** — Extended: adds plan overview, ancestry path, linked goals, transitive dependencies. Use for first-time orientation or cross-cutting tasks.
+## Goal coaching
 
-If your context window is limited, set `token_budget` to cap the response size:
-```
-get_task_context({ node_id: "<task_id>", depth: 3, token_budget: 4000 })
-```
-
-## Finding What to Work On
+When a user expresses intent — "I want to launch a feature", "we need better testing" — coach them into a structured goal before creating it.
 
 ```
-suggest_next_tasks({ plan_id: "<plan_id>" })
+1. Ask 2-3 sharp questions to clarify success criteria
+2. list_goals to check if a similar goal already exists
+3. Use update_goal({ add_linked_plans, add_achievers }) to wire it up
+
+Goal types:
+- desire — aspirational, no firm deadline
+- intention — promoted from desire when execution begins
 ```
 
-Returns tasks that are **ready** — all upstream dependencies are completed. Sorted by priority:
-1. RPI research tasks (start of a chain)
-2. Tasks that unblock the most downstream work
-3. Tasks by order index
+Promote desire → intention via `update_goal({ promote_to_intention: true })`.
 
-Each suggestion includes a `reason` field explaining why it's recommended.
+## Decision queueing
 
-## Tool Reference
+When you need human input, **always** use `queue_decision`. Never write decisions as knowledge episodes via `add_learning(entry_type='decision')` — that pattern was a workaround and is no longer needed.
 
-### Quick Actions (Low Friction)
-
-| Tool | Use When |
-|------|----------|
-| `quick_plan` | Creating a new plan from a title + task list (provide goal_id to auto-link) |
-| `quick_task` | Adding a single task to an existing plan |
-| `quick_status` | Updating a task's status (the most common operation) |
-| `quick_log` | Logging progress on a task |
-
-### Plans
-
-| Tool | Purpose |
-|------|---------|
-| `list_plans` | See all accessible plans |
-| `create_plan` | Create a plan with full options |
-| `update_plan` | Change plan title, description, visibility |
-| `delete_plan` | Delete a plan |
-| `get_plan_structure` | Get hierarchical tree (minimal fields — fast) |
-| `get_plan_summary` | Statistics and overview |
-| `share_plan` | Share a plan with another user |
-
-### Nodes (Tasks, Phases, Milestones)
-
-| Tool | Purpose |
-|------|---------|
-| `create_node` | Create a task, phase, or milestone |
-| `update_node` | Change title, description, status, task_mode, etc. |
-| `delete_node` | Delete a node and its children |
-| `move_node` | Reparent or reorder a node |
-| `batch_update_nodes` | Update multiple nodes at once |
-| `get_node_ancestry` | Path from root to node |
-
-When creating nodes:
-- `node_type`: `phase` (group of tasks), `task` (unit of work), `milestone` (checkpoint)
-- `task_mode`: `free` (default), `research`, `plan`, `implement` (for RPI chains)
-- `status`: `not_started`, `in_progress`, `completed`, `blocked`, `plan_ready`
-
-### Dependencies
-
-| Tool | Purpose |
-|------|---------|
-| `create_dependency` | Create a directed edge between two nodes |
-| `delete_dependency` | Remove a dependency edge |
-| `list_dependencies` | List all edges in a plan |
-| `get_node_dependencies` | Get upstream/downstream/both for a node |
-| `analyze_impact` | What happens if a node is delayed/blocked/removed |
-| `get_critical_path` | Longest blocking chain through incomplete tasks |
-
-Dependency types:
-- `blocks` — Source must complete before target can start (hard constraint)
-- `requires` — Target needs output from source (softer)
-- `relates_to` — Informational link, no execution constraint
-
-Example — "Design API" blocks "Implement API":
 ```
-create_dependency({
-  plan_id: "...",
-  source_node_id: "<design_api_id>",
-  target_node_id: "<implement_api_id>",
-  dependency_type: "blocks"
+queue_decision({
+  plan_id: "<plan>",
+  node_id: "<task>" (optional),
+  title: "Approve npm publish v0.9.0?",
+  context: "Build is green, .mcpb tested in Claude Desktop, migration written. Risk: breaking change for any direct users.",
+  options: [
+    { label: "approve", description: "Publish now" },
+    { label: "defer", description: "Wait for QA round" }
+  ],
+  recommendation: "approve — small user base, MIGRATION_v0.9.md covers the diff",
+  smallest_input_needed: "approve|defer",
+  urgency: "normal"
 })
 ```
 
-Cycle detection is automatic — you cannot create a dependency that would form a cycle.
+The decision shows up in Cowork briefings, autopilot loops, and the AgentPlanner UI for the human. Resolve via `resolve_decision({ decision_id, action: 'approve'|'defer'|'reject' })`.
 
-### Context & Analysis
+## Knowledge: write decisions, recall context
 
-| Tool | Purpose |
-|------|---------|
-| `get_task_context` | **Primary.** Progressive context at depth 1-4 with token budgeting |
-| `get_plan_context` | Plan overview with phase summaries and knowledge |
-| `suggest_next_tasks` | Find ready tasks based on dependency analysis |
-
-### Logging
-
-| Tool | Purpose |
-|------|---------|
-| `add_log` | Add a structured log entry to a node |
-| `get_logs` | Retrieve log entries for a node |
-
-Log types and when to use them:
-- `progress` — Status updates, milestones reached
-- `reasoning` — Analysis, findings, thought process (high value for downstream tasks)
-- `decision` — Choices made and why (highest value — persists through compaction)
-- `challenge` — Obstacles encountered, workarounds found
-- `comment` — General notes
-
-For research and plan tasks, use `reasoning` and `decision` log types — these are preserved when research output is compacted for downstream implement tasks.
-
-### Goals
-
-| Tool | Purpose |
-|------|---------|
-| `check_goals_health` | Dashboard of all goals with health status, bottlenecks, and gaps |
-| `list_goals` | See all goals |
-| `create_goal` | Create a goal |
-| `update_goal` | Update goal details |
-| `get_goal` | Get goal with linked plans |
-| `link_plan_to_goal` | Connect a plan to a goal |
-| `unlink_plan_from_goal` | Disconnect a plan from a goal |
-| `goal_path` | Full dependency path to a goal — all tasks that contribute (direct achievers + upstream blockers) |
-| `goal_progress` | Completion percentage calculated from the goal's dependency graph |
-| `goal_knowledge_gaps` | Detect tasks on the goal path that lack knowledge — identifies where research is needed |
-| `add_achiever` | Link a task to a goal via an "achieves" edge (declares this task contributes to the goal) |
-| `remove_achiever` | Remove an achieves edge between a task and a goal |
-
-Goal-task linking creates a dependency graph from tasks up to goals. Use `add_achiever` to declare which tasks contribute to a goal, then `goal_path` and `goal_progress` to track completion through the full dependency chain. `goal_knowledge_gaps` checks which tasks on the path lack relevant knowledge in the temporal graph — useful for identifying where research is needed before implementation.
-
-### Cross-Plan Dependencies
-
-| Tool | Purpose |
-|------|---------|
-| `create_cross_plan_dependency` | Create a dependency edge between nodes in different plans |
-| `list_cross_plan_dependencies` | List all edges that cross plan boundaries between specified plans |
-| `create_external_dependency` | Create an external blocker (vendor API, legal approval, etc.) that optionally blocks a task |
-
-Cross-plan dependencies work the same as regular dependencies (`blocks`, `requires`, `relates_to`) but connect nodes across plans. External dependencies represent blockers outside the system.
-
-### Task Claiming
-
-| Tool | Purpose |
-|------|---------|
-| `claim_task` | Claim exclusive ownership of a task (prevents agent collisions) |
-| `release_task` | Release a previously claimed task |
-
-### Alignment & Review
-
-Check if goals, plans, and knowledge are aligned. Run as a preflight check before starting work.
-
-| Tool | Purpose |
-|------|---------|
-| `check_coherence_pending` | See what needs review — returns stale plans/goals that changed since last check |
-| `run_coherence_check` | Evaluate a plan's quality (coverage, specificity, ordering, knowledge) and stamp as reviewed |
-| `assess_goal_quality` | Check how well-defined a goal is (clarity, measurability, actionability, knowledge, commitment) |
-
-### Knowledge (Temporal Knowledge Graph)
-
-All knowledge is stored in the Graphiti temporal knowledge graph, which automatically extracts entities and relationships and enables cross-plan knowledge retrieval. The temporal graph is **cross-plan** and **persists across sessions** — anything recorded is available to all future agents and conversations within the organization.
-
-| Tool | Purpose |
-|------|---------|
-| `add_learning` | Record knowledge to the temporal graph with automatic entity extraction |
-| `recall_knowledge` | Search the temporal knowledge graph across ALL plans in the org |
-| `find_entities` | Search for entities (technologies, people, patterns, etc.) |
-| `check_contradictions` | Check if knowledge about a topic has changed; returns current and superseded (outdated) facts |
-| `get_recent_episodes` | Get recent knowledge episodes from the temporal graph (work session history) |
-
-`add_learning` params:
-- `content` (required) — The knowledge to record
-- `title` — Short title for the entry
-- `entry_type` — `decision`, `learning`, `context`, or `constraint`
-- `plan_id` — Associate with a specific plan
-- `node_id` — Associate with a specific node
-
-`recall_knowledge` params:
-- `query` (required) — Natural language search query
-- `max_results` — Number of results (default 10)
-
-`find_entities` params:
-- `query` (required) — Entity name or description to search for
-- `max_results` — Number of results (default 10)
-
-`check_contradictions` params:
-- `query` (required) — Topic to check for contradictions
-- `max_results` — Number of results (default 10)
-
-Use `check_contradictions` before making decisions based on past knowledge. It returns two sets of facts: **current** (valid) and **superseded** (outdated). If superseded facts exist, review them — the situation may have changed since you last encountered this topic.
-
-`get_recent_episodes` params:
-- `max_episodes` — Maximum episodes to return (default 20)
-
-Use `get_recent_episodes` to review what has been learned recently across all plans. Useful for session start-up (understanding recent activity) or auditing what knowledge has been captured.
-
-### Organizations
-
-| Tool | Purpose |
-|------|---------|
-| `list_organizations` | List your organizations |
-| `get_organization` | Organization details |
-| `create_organization` | Create an org |
-| `update_organization` | Update org details |
-
-### Orientation
-
-| Tool | Purpose |
-|------|---------|
-| `get_started` | Guidance on how to use AgentPlanner — call when new or unsure how to approach a task |
-
-`get_started` accepts an optional `topic`: `overview`, `planning`, `execution`, `knowledge`, or `collaboration`.
-
-To understand a plan before starting, use `get_plan_context({ plan_id })` for the overview, then `get_task_context({ node_id, depth: 4 })` for deep context on a specific task.
-
-### Other
-
-| Tool | Purpose |
-|------|---------|
-| `search` | Global search across plans and nodes |
-| `get_my_tasks` | Tasks assigned to you across all plans |
-| `import_plan_markdown` | Create a plan from markdown |
-| `export_plan_markdown` | Export a plan as markdown |
-
-## RPI Chains (Research → Plan → Implement)
-
-For complex tasks that need investigation before implementation, decompose into an RPI chain:
+Use `add_learning` to record:
+- A decision and its reasoning
+- A discovered constraint or pattern
+- Important context for future sessions
 
 ```
-create_rpi_chain({
-  plan_id: "<plan_id>",
-  parent_id: "<phase_id>",
-  title: "Auth Service",
-  research_description: "Research auth patterns for microservices"
+add_learning({
+  content: "Switched to Neo4j Community from FalkorDB because SSPL conflicts with our SaaS license model.",
+  scope: { plan_id: "<plan>" },
+  entry_type: "decision"
 })
 ```
 
-This creates 3 tasks with blocking dependencies wired automatically:
+Use `recall_knowledge` before making decisions to check cross-plan history:
 
 ```
-Research (task_mode=research)
-  │ Investigate the problem. Log findings as reasoning/decision entries.
-  │ Mark completed when done → research output is auto-compacted.
-  ▼
-Plan (task_mode=plan)
-  │ Gets compacted research automatically.
-  │ Design the solution. Mark plan_ready for human review.
-  ▼ Human approves → mark completed.
-Implement (task_mode=implement)
-  │ Gets compacted research + plan context automatically.
-  │ Build the solution.
-  ▼ Mark completed when done.
+recall_knowledge({
+  query: "knowledge graph backend choice",
+  result_kind: "all",
+  include_contradictions: true
+})
 ```
 
-When to use RPI vs. a single task:
-- **Single task**: Simple, well-understood work. You know how to do it.
-- **RPI chain**: Complex or novel work. Needs investigation. Multiple approaches possible. Risk of rework.
+`result_kind` options: `'facts'`, `'entities'`, `'episodes'`, `'all'`. Default is `'all'` — narrow it to control payload size.
 
-## Status Values
+## Migrating from v0.8.x
 
-| Status | Meaning | When to Set |
-|--------|---------|-------------|
-| `not_started` | No work begun | Default. Also set automatically when all blockers complete. |
-| `in_progress` | Actively being worked on | When you start working on a task. |
-| `completed` | Done and verified | When the work is finished. Triggers auto-unblock of downstream tasks. |
-| `blocked` | Cannot proceed | When waiting on a dependency, decision, or external input. Always log the reason. |
-| `plan_ready` | Awaiting human review | When a plan/research task is done and needs human approval before the next step. |
+v0.9.0 is a breaking release. The old 63-tool surface is gone. See [MIGRATION_v0.9.md](docs/MIGRATION_v0.9.md) for the full mapping. Highlights:
 
-## Patterns
+- `check_goals_health` + `get_my_tasks` + `get_recent_episodes` + `check_coherence_pending` → `briefing`
+- `quick_status` + `add_log` + `release_task` → `update_task`
+- `suggest_next_tasks` + `claim_task` + `get_task_context` → `claim_next_task`
+- `add_learning(entry_type='decision')` → `queue_decision` (real decision queue, not knowledge graph)
+- `get_goal` + `goal_path` + `goal_progress` + `assess_goal_quality` → `goal_state`
+- `recall_knowledge` + `find_entities` + `get_recent_episodes` + `check_contradictions` → `recall_knowledge`
 
-### Starting a New Session
-```
-1. get_my_tasks({}) → see what's in progress or blocked across all plans
-2. get_recent_episodes({ max_episodes: 10 }) → review recent knowledge across all plans
-3. If resuming a task: get_task_context({ node_id: "...", depth: 2 })
-4. If orienting on a plan: get_plan_context({ plan_id: "..." })
-5. If starting fresh: suggest_next_tasks({ plan_id: "..." })
-```
+CRUD-shaped admin tools (`create_node`, `update_plan`, `delete_*`) are removed in v0.9.0. They return as `ap_admin_*` namespace in v1.0.0. Use the AgentPlanner REST API directly if you need them now.
 
-### Breaking Down a Large Task
-```
-1. Identify the task is too complex for one pass
-2. create_rpi_chain to decompose it
-3. Start with the Research task
-4. Log findings as reasoning/decision entries
-5. Let the chain guide you through plan → implement
-```
+## Principles
 
-### Handling Blockers
-```
-1. quick_status({ task_id: "...", status: "blocked" })
-2. add_log({ node_id: "...", content: "Blocked on: <reason>", log_type: "challenge" })
-3. suggest_next_tasks({ plan_id: "..." }) → find another task to work on
-```
+- Tools are intent-shaped, not CRUD-shaped — name what you want to accomplish, not which row to mutate
+- Reads are bundled — minimize round trips, especially for refresh-loops
+- Writes are atomic where possible — `update_task` does status + log + release + learning in one call
+- `as_of` on every response — use for stale-data warnings on live artifacts
+- Decisions are first-class — never fake them via the knowledge graph
+- Knowledge persists across plans and sessions — write learnings, recall liberally
 
-### After Research or Investigation
-```
-1. Log findings to the task: add_log({ node_id: "...", content: "...", log_type: "reasoning" })
-2. Persist important findings to the temporal knowledge graph:
-   add_learning({ content: "Found that X works best because Y", title: "...", entry_type: "learning", plan_id: "..." })
-3. This makes the knowledge discoverable across ALL plans and future sessions via recall_knowledge
-4. Always use add_learning for findings you'd want to remember next session — the temporal graph is cross-plan and persistent
-```
-
-### Before Making an Important Decision
-```
-1. recall_knowledge({ query: "relevant topic" }) → check temporal graph for cross-plan knowledge
-2. check_contradictions({ query: "relevant topic" }) → verify nothing has been superseded since you last checked
-3. Make the decision (using current, non-superseded facts)
-4. add_log({ node_id: "...", content: "Decision: <what and why>", log_type: "decision" })
-5. add_learning({ content: "Decision: <what and why>", title: "...", entry_type: "decision", plan_id: "..." })
-```
-
-### Understanding Plan Structure
-```
-1. get_plan_structure({ plan_id: "..." }) → hierarchical tree (minimal, fast)
-2. get_plan_summary({ plan_id: "..." }) → statistics and phase progress
-3. get_task_context({ node_id: "...", depth: 4 }) → deep context for a specific task
-```
-
-### Impact Analysis Before Changes
-```
-1. analyze_impact({ plan_id: "...", node_id: "...", scenario: "block" })
-   → See which tasks would be affected if this task is blocked
-2. get_critical_path({ plan_id: "..." })
-   → See the longest dependency chain (what determines overall completion time)
-```
-
-## Autonomous Goal-Driven Loop
-
-For agents that run periodically (e.g., via cron or event triggers), this is the recommended execution pattern:
-
-### Phase 1: Orient
-```
-check_goals_health()
-```
-Identify which goals are stale, at risk, or need attention. Prioritize goals by health status: stale first, then at_risk, then on_track.
-
-### Phase 2: Plan
-For each goal needing attention:
-```
-get_goal({goal_id})           # Understand the objective
-recall_knowledge({query})     # What do we already know?
-quick_plan({title, tasks, goal_id})  # Create/update plan linked to goal
-```
-
-### Phase 3: Decompose
-For complex tasks, use RPI chains:
-```
-create_rpi_chain({plan_id, parent_id, topic})  # Research → Plan → Implement
-```
-
-### Phase 4: Execute
-```
-suggest_next_tasks({plan_id})     # What's unblocked?
-claim_task({task_id, plan_id})    # Claim exclusive ownership
-get_task_context({node_id, depth: 3})  # Load context
-# ... do the work ...
-quick_log({task_id, plan_id, message})  # Document progress
-add_learning({content, plan_id})  # Capture knowledge
-quick_status({task_id, plan_id, status: "completed"})  # Triggers propagation
-```
-
-### Phase 5: Report
-```
-quick_log({task_id, plan_id, message: "Summary of work done", log_type: "completion"})
-```
-
-### Key Principles
-- **Always claim before working** — prevents collisions with other agents
-- **Always link plans to goals** — enables health tracking and progress reporting
-- **Log decisions and learnings** — future agents and humans need your reasoning
-- **Check for contradictions** — `check_contradictions()` before acting on old knowledge
-- **Let propagation work** — completing blockers auto-unblocks downstream tasks
-
-## Rules
-
-1. **Always load context before working** — never guess what a task requires.
-2. **Log as you work** — not just at the end. Frequent logs help humans and future agents.
-3. **Use `decision` log type for important choices** — these survive research compaction.
-4. **Check dependencies** — don't start a task if its blockers aren't completed. Use `suggest_next_tasks`.
-5. **Mark status transitions promptly** — `in_progress` when starting, `completed` when done, `blocked` when stuck.
-6. **Search knowledge before deciding** — use `recall_knowledge` to check the temporal graph and `check_contradictions` to verify nothing is outdated. Prior decisions may already exist across other plans.
-7. **Use RPI for complex work** — if you're uncertain about the approach, decompose first.
-8. **Don't modify tasks you haven't claimed** — mark `in_progress` before making changes.
+Call `get_started` from any AgentPlanner-aware agent for an up-to-date reference.
