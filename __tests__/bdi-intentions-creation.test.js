@@ -69,8 +69,11 @@ describe('form_intention tool', () => {
       client,
     );
 
+    // Visibility is NOT in createPlan payload — backend's createPlan schema is
+    // .strict() and rejects unknown fields. Non-default visibility goes through
+    // updateVisibility separately.
     expect(client.plans.createPlan).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'P1', status: 'active', visibility: 'private' }),
+      expect.objectContaining({ title: 'P1', status: 'active' }),
     );
     expect(client.goals.linkPlan).toHaveBeenCalledWith(GOAL_ID, PLAN_ID);
   });

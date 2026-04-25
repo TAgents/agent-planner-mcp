@@ -728,20 +728,29 @@ async function formIntentionHandler(args, apiClient) {
   // Compose plan description (rationale + optional description).
   const composedDescription = description ? `${rationale}\n\n${description}` : rationale;
 
-  // 1. Create plan.
+  // 1. Create plan. Visibility goes through a separate endpoint —
+  // POST /plans schema is .strict() and only accepts title, description, status, metadata.
   let plan;
   try {
     plan = await apiClient.plans.createPlan({
       title,
       description: composedDescription,
       status,
-      visibility,
     });
   } catch (err) {
     return errorResponse('create_failed', `Failed to create plan: ${err.response?.data?.error || err.message}`);
   }
 
-  // 2. Link plan to goal (best-effort).
+  // 2. Apply non-default visibility (separate endpoint).
+  if (visibility && visibility !== 'private') {
+    try {
+      await apiClient.plans.updateVisibility(plan.id, { visibility });
+    } catch (err) {
+      // Non-fatal — plan exists with default visibility, caller can retry.
+    }
+  }
+
+  // 3. Link plan to goal (best-effort).
   try {
     await apiClient.goals.linkPlan(goal_id, plan.id);
   } catch (err) {
