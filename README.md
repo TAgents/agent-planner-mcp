@@ -210,59 +210,61 @@ Add the same JSON config to your Cline MCP settings in VS Code.
 
 ## Key Features
 
-- **60+ tools** for planning, task management, dependencies, and knowledge
-- **Dependency graph** with cycle detection, impact analysis, and critical path
+- **24 BDI-aligned tools** for state, goals, and committed actions — no CRUD shapes, every tool answers a whole agentic question
+- **Full mutation surface (v1.0)** — agents and humans-via-agents can manage every plan/node/org property without leaving the conversation; UI is optional inspection
+- **Draft-status seam** — autonomous agent creation lands as drafts surfacing in the dashboard pending queue; human-directed creation defaults to active
+- **Dependency graph** — cycle detection, impact analysis, critical path
 - **Progressive context** — 4-layer context assembly with token budgeting
 - **Knowledge graph** — temporal knowledge via Graphiti (entities, facts, contradictions)
-- **RPI chains** — Research > Plan > Implement task decomposition
-- **Goal tracking** — health dashboard, briefings, bottleneck detection
+- **RPI chains** — Research → Plan → Implement task decomposition (one-call shortcut)
 - **Task claims** — TTL-based locking for multi-agent coordination
-- **Organizations** — multi-tenant isolation
+- **Organizations** — multi-tenant isolation with member management
 
-## Available Tools
+## Available Tools (v1.0.0)
 
-### Planning & Search
-- `search` - Universal search across all scopes with filters
-- `create_plan` / `update_plan` / `delete_plan` - Plan CRUD
-- `get_plan_structure` - Hierarchical plan tree
-- `get_plan_summary` - Statistics and summary
+### Beliefs (read state)
+- `briefing` — bundled mission control state in one call
+- `task_context` — single task at progressive depth 1-4
+- `goal_state` — single goal deep-dive (details + quality + progress + bottlenecks + gaps)
+- `recall_knowledge` — knowledge graph query (facts, entities, episodes, contradictions)
+- `search` — text search across plans/nodes
+- `plan_analysis` — impact, critical path, bottlenecks, coherence
 
-### Node Management
-- `create_node` / `update_node` / `delete_node` - Node CRUD
-- `move_node` - Reorder or reparent nodes
-- `batch_update_nodes` - Update multiple nodes at once
-- `get_node_context` / `get_node_ancestry` - Rich context
+### Desires (goals)
+- `list_goals` — goals with health rollup
+- `update_goal` — atomic goal update (subsumes link/unlink/achievers)
+- `derive_subgoal` *(v1.0)* — propose a sub-goal under an existing parent
 
-### Dependencies & Analysis
-- `create_dependency` / `delete_dependency` - Manage edges
-- `list_dependencies` / `get_node_dependencies` - Query graph
-- `analyze_impact` - Delay/block/remove scenario analysis
-- `get_critical_path` - Longest blocking chain
-- `create_rpi_chain` - Research > Plan > Implement chain
+### Intentions — execution
+- `claim_next_task` — pick + claim + load context (one call)
+- `update_task` — atomic status + log + claim release + learning
+- `release_task` — explicit handoff
+- `queue_decision` — escalate to human (real decision queue)
+- `resolve_decision` — pick up human's answer (atomically materializes any `proposed_subtasks`)
+- `add_learning` — record knowledge episode
 
-### Progressive Context
-- `get_task_context` - Primary context tool (depth 1-4, token budget)
-- `suggest_next_tasks` - Dependency-aware suggestions
-- `get_agent_context` / `get_plan_context` - Focused views
+### Intentions — creation *(v1.0)*
+- `form_intention` — create plan + initial tree under a goal, atomically
+- `extend_intention` — add children under an existing parent (lightweight)
+- `propose_research_chain` — RPI triple with 2 blocking edges, in one call
 
-### Knowledge Graph
-- `add_learning` / `recall_knowledge` - Learn and retrieve
-- `find_entities` / `check_contradictions` - Graph queries
-- `get_recent_episodes` - Temporal episodes
+### Intentions — structural mutation *(v1.0)*
+- `update_plan` — edit any plan property
+- `update_node` — edit any node property except status
+- `move_node` — reparent within plan; cycle-safe
+- `link_intentions` / `unlink_intentions` — manage dependency edges
+- `delete_plan` / `delete_node` — soft-delete via `status='archived'` (recoverable)
 
-### Goals & Organizations
-- `create_goal` / `update_goal` / `list_goals` / `get_goal` - Goal management
-- `check_goals_health` - Health dashboard
-- `create_organization` / `get_organization` / `list_organizations` / `update_organization`
+### Intentions — sharing & collaboration *(v1.0)*
+- `share_plan` — atomic visibility + add/remove collaborators
+- `invite_member` — add user to org (by user_id or email)
+- `update_member_role` — owner-only role change
+- `remove_member` — owner/admin removes non-owner member
 
-### Collaboration
-- `add_log` / `get_logs` - Log entries (comments, progress, reasoning)
-- `claim_task` / `release_task` - Task locking
-- `share_plan` - Collaboration management
+### Utility
+- `get_started` — dynamic reference for new agents
 
-### Alignment & Review
-- `check_coherence_pending` - See which plans/goals need alignment review (staleness check)
-- `run_coherence_check` - Evaluate plan quality and stamp as reviewed
+See [SKILL.md](./SKILL.md) for full descriptions, the human-steering scenarios (A/B/C), and `status='draft'` vs `status='active'` guidance.
 
 ## LLM Skill Reference
 

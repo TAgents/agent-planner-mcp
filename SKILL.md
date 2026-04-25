@@ -1,7 +1,7 @@
 ---
 name: agentplanner
-description: "Agent orchestration skill for AgentPlanner — BDI-aligned tools for state, goals, and committed actions with human oversight"
-version: 0.9.0
+description: "Agent orchestration skill for AgentPlanner — BDI-aligned tools for state, goals, committed actions, and full mutation surface with human oversight"
+version: 1.0.0
 homepage: https://agentplanner.io
 metadata:
   openclaw:
@@ -15,7 +15,7 @@ metadata:
 
 You have access to the AgentPlanner MCP tools. AgentPlanner is a collaborative planning system where you track work, manage dependencies, and coordinate with humans. This document is your complete reference.
 
-> **Prerequisite:** This skill requires the `agent-planner-mcp` MCP server (v0.9.0+) to be connected. Create an API token at Settings → API Tokens on [agentplanner.io](https://agentplanner.io).
+> **Prerequisite:** This skill requires the `agent-planner-mcp` MCP server (v1.0.0+) to be connected. Create an API token at Settings → API Tokens on [agentplanner.io](https://agentplanner.io).
 >
 > **Setup by client:**
 > - **Claude Desktop:** Download the [.mcpb](https://github.com/TAgents/agent-planner-mcp/releases/latest), double-click to install
@@ -23,9 +23,9 @@ You have access to the AgentPlanner MCP tools. AgentPlanner is a collaborative p
 > - **Cursor / VS Code:** Add `npx agent-planner-mcp` to your MCP config with env vars `API_URL` and `USER_API_TOKEN`
 > - **ChatGPT:** HTTP endpoint at `https://agentplanner.io/mcp`
 
-## The 15 tools, organized by intent
+## The 24 tools, organized by intent
 
-AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desires (goal management), Intentions (committed actions). Each tool answers one whole agentic question and returns an `as_of` ISO 8601 timestamp.
+AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desires (goal management), Intentions (committed actions). Each tool answers one whole agentic question and returns an `as_of` ISO 8601 timestamp. v1.0.0 completes the mutation surface so humans can steer entirely through agent conversation — no UI required for normal operations.
 
 ### Beliefs — what is the state of the world?
 
@@ -40,15 +40,37 @@ AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desi
 
 - `list_goals` — goals with health rollup (`{ on_track, at_risk, stale, total }`)
 - `update_goal` — atomic goal update; subsumes link/unlink + achiever changes
+- `derive_subgoal` *(v1.0)* — propose a sub-goal under an existing parent. Top-level goal creation stays UI-only.
 
 ### Intentions — what am I committing to?
 
+**Execution (existing in v0.9):**
 - `claim_next_task` — pick + claim + load context in one call (cornerstone for coding agents)
 - `update_task` — atomic state transition (status + log + claim release + optional learning)
 - `release_task` — explicit handoff
 - `queue_decision` — escalate to human (writes to real decisions table — do **not** misuse `add_learning` for this)
 - `resolve_decision` — pick up after human approval/deferral
 - `add_learning` — record a knowledge episode for future recall
+
+**Creation (v1.0):**
+- `form_intention` — create a plan + initial phase/task tree under a goal, atomically
+- `extend_intention` — add children under an existing phase or task (lightweight, no decision-queue gate)
+- `propose_research_chain` — Research → Plan → Implement triple with two blocking edges, in one call
+
+**Structural mutation (v1.0):**
+- `update_plan` — edit any plan property (title, description, status, visibility, metadata)
+- `update_node` — edit any node property except status (status routes through `update_task`)
+- `move_node` — reparent within the same plan; cycle-safe
+- `link_intentions` — create a dependency edge between two existing tasks
+- `unlink_intentions` — remove a dependency edge by id
+- `delete_plan` — soft-delete via `status='archived'`; recoverable
+- `delete_node` — soft-delete via `status='archived'`
+
+**Sharing and collaboration (v1.0):**
+- `share_plan` — atomic visibility change + add/remove collaborators
+- `invite_member` — add user to organization (by user_id or email)
+- `update_member_role` — owner-only role change within an org
+- `remove_member` — owner/admin can remove non-owner members
 
 ### Utility
 
@@ -107,7 +129,7 @@ claim_next_task({ scope: { plan_id } })  // dry_run defaults to false
 
 ### Proposing subtasks for human approval (v0.9.1+)
 
-Agents can't create plan structure directly — that's the human's job. But agents *can* propose subtasks via `queue_decision` and have them materialize on approval. This preserves the "agents drive execution, humans steer structure" boundary while removing the manual follow-through tax.
+For high-touch proposals (entire new directions, structural changes the human should review before they materialize), use `queue_decision` with `proposed_subtasks` — tasks only get created on `resolve_decision({action: 'approve'})`.
 
 ```
 queue_decision({
@@ -124,6 +146,100 @@ queue_decision({
 // On resolve_decision({ action: 'approve' }), the 3 tasks are atomically created
 // and their IDs returned in created_subtasks[]. Defer/reject does nothing.
 ```
+
+For routine decomposition (a task you're working on needs subtasks), use `extend_intention` directly — no decision queue, no friction.
+
+## The human-steering loop (v1.0)
+
+v1.0 closes the creation gap. There are three distinct flows depending on who initiated the action:
+
+### Scenario A: Human directs you in conversation
+
+User says "create a plan to ship the new auth flow under the security goal" or "mark the BSL launch plan completed."
+
+Default to **`status='active'`** — the human asked for it, just do it.
+
+```
+form_intention({
+  goal_id: '<security-goal-id>',
+  title: 'Ship new auth flow',
+  rationale: 'User-requested plan to migrate auth to passkeys',
+  tree: [
+    { node_type: 'phase', title: 'Discovery', children: [...] },
+    { node_type: 'phase', title: 'Implementation', children: [...] },
+  ]
+})
+// Plan lands as active. No approval needed — user already approved by asking.
+```
+
+```
+update_plan({ plan_id: '<bsl-plan>', status: 'completed' })
+// Done. No queue, no UI trip.
+```
+
+### Scenario B: You're acting autonomously (scheduled loop, etc.)
+
+No explicit human direction. You decided the workspace needs new structure.
+
+Pass **`status='draft'`** — let the human see what you proposed before it activates.
+
+```
+derive_subgoal({
+  parent_goal_id: '<launch-goal>',
+  title: 'First 3 paying customers',
+  rationale: 'Goal is at_risk — need a concrete intermediate target before broader push',
+  status: 'draft',
+})
+// Surfaces in dashboard pending. Human approves via update_goal({status: 'active'})
+// or in the UI. Plans auto-promote to active when first task moves to in_progress.
+```
+
+### Scenario C: You're uncertain and want explicit input
+
+Genuine ambiguity. Use `queue_decision`.
+
+```
+queue_decision({
+  title: 'Two conflicting facts about pricing',
+  context: 'Memory says $19/mo Pro tier; recent decision log says $29/mo. Which is current?',
+  smallest_input_needed: 'pick one',
+  options: [{ label: '$19' }, { label: '$29' }],
+  urgency: 'normal',
+})
+```
+
+The decision queue is for genuine uncertainty, not as a default gate on everything you do.
+
+## Editing structure (v1.0)
+
+These are routine — call them whenever needed. No decision-queue ceremony.
+
+| Want to... | Call |
+|---|---|
+| Rename a plan | `update_plan({plan_id, title})` |
+| Rename a task | `update_node({node_id, title})` |
+| Edit task instructions | `update_node({node_id, agent_instructions})` |
+| Move a task under a different phase | `move_node({node_id, new_parent_id})` |
+| Express B blocks A | `link_intentions({from_task_id: A, to_task_id: B, relation: 'blocks', rationale: '...'})` |
+| Remove a stale dep | `unlink_intentions({dependency_id, plan_id})` |
+| Archive a plan | `delete_plan({plan_id, reason})` |
+| Archive a task | `delete_node({node_id})` |
+| Restore an archived plan | `update_plan({plan_id, status: 'active', restore: true})` |
+
+`delete_*` is soft delete (sets `status='archived'`) — fully recoverable. Hard delete stays REST + admin-only on purpose; agents shouldn't be able to permanently destroy data.
+
+## Sharing and collaboration (v1.0)
+
+| Want to... | Call |
+|---|---|
+| Make a plan public | `share_plan({plan_id, visibility: 'public'})` |
+| Add a collaborator (by user_id) | `share_plan({plan_id, add_collaborators: [{user_id, role: 'editor'}]})` |
+| Remove a collaborator | `share_plan({plan_id, remove_collaborators: [user_id]})` |
+| Invite someone to the org | `invite_member({organization_id, email})` (or by `user_id`) |
+| Promote member to admin | `update_member_role({organization_id, membership_id, new_role: 'admin'})` |
+| Remove a member | `remove_member({organization_id, membership_id, reason})` |
+
+Email-based collaborator invites stay UI-only; `share_plan` accepts user_ids only. The dedicated `invite_member` call accepts email for org-level invites.
 
 ## Goal coaching
 
@@ -190,18 +306,10 @@ recall_knowledge({
 
 `result_kind` options: `'facts'`, `'entities'`, `'episodes'`, `'all'`. Default is `'all'` — narrow it to control payload size.
 
-## Migrating from v0.8.x
+## Migration history
 
-v0.9.0 is a breaking release. The old 63-tool surface is gone. See [MIGRATION_v0.9.md](docs/MIGRATION_v0.9.md) for the full mapping. Highlights:
-
-- `check_goals_health` + `get_my_tasks` + `get_recent_episodes` + `check_coherence_pending` → `briefing`
-- `quick_status` + `add_log` + `release_task` → `update_task`
-- `suggest_next_tasks` + `claim_task` + `get_task_context` → `claim_next_task`
-- `add_learning(entry_type='decision')` → `queue_decision` (real decision queue, not knowledge graph)
-- `get_goal` + `goal_path` + `goal_progress` + `assess_goal_quality` → `goal_state`
-- `recall_knowledge` + `find_entities` + `get_recent_episodes` + `check_contradictions` → `recall_knowledge`
-
-CRUD-shaped admin tools (`create_node`, `update_plan`, `delete_*`) are removed in v0.9.0. They return as `ap_admin_*` namespace in v1.0.0. Use the AgentPlanner REST API directly if you need them now.
+- **v0.8.x → v0.9.0** — clean break. 63 legacy CRUD tools collapsed into 15 BDI-aligned tools. See [docs/MIGRATION_v0.9.md](docs/MIGRATION_v0.9.md) for the full mapping.
+- **v0.9.x → v1.0.0** — additive. v0.9 read/update tools unchanged. Adds the full mutation surface (creation, structural edits, sharing, collaboration) so humans can steer entirely through agent conversation. The previously planned `ap_admin_*` namespace is no longer needed — those operations are now first-class BDI tools, with the draft-status seam keeping autonomous agent creation reviewable. See [docs/MIGRATION_v1.0.md](docs/MIGRATION_v1.0.md).
 
 ## Principles
 

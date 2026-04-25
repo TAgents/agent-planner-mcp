@@ -1,9 +1,16 @@
 /**
  * BDI intentions — committed actions.
  *
- * v0.9.0 ships queue_decision, resolve_decision, and update_task first.
- * Other intention tools (claim_next_task, release_task, add_learning) land in
- * subsequent passes.
+ * v0.9.0 baseline (execution): queue_decision, resolve_decision, update_task,
+ * claim_next_task, release_task, add_learning.
+ *
+ * v1.0.0 additions (creation, mutation, collaboration):
+ *   - form_intention, extend_intention, propose_research_chain
+ *   - link_intentions, unlink_intentions
+ *   - update_plan, update_node, move_node, delete_plan, delete_node
+ *   - share_plan, invite_member, update_member_role, remove_member
+ *
+ * See ../../../docs/MCP_v1.0_FULL_SURFACE.md for design rationale.
  */
 
 const { asOf, formatResponse, errorResponse } = require('./_shared');
