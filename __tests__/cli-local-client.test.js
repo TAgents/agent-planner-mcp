@@ -289,7 +289,7 @@ describe('local client helpers', () => {
       users: { getMyTasks: jest.fn().mockResolvedValue([]) },
     });
 
-    await expect(localClient.getNextTask({})).rejects.toThrow('No tasks in the queue');
+    await expect(localClient.getNextTask({})).rejects.toThrow('No actionable tasks');
   });
 
   test('renderCurrentTask includes goals when present in context', () => {
@@ -426,7 +426,35 @@ describe('local client helpers', () => {
     expect(md).toContain('Task mode: implement');
   });
 
-  test('getNextTask prefers suggest_next_tasks over my-tasks queue', async () => {
+  test('getNextTask resumes in_progress task before consulting suggest_next_tasks', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret', defaultPlanId: 'plan-1' });
+
+    const suggestNextTasks = jest.fn();
+    const claimTask = jest.fn().mockResolvedValue({});
+    const getMyTasks = jest.fn().mockResolvedValue([
+      { id: 'active-1', title: 'Active work', status: 'in_progress', plan_id: 'plan-1' },
+    ]);
+
+    createApiClient.mockReturnValue({
+      users: { getMyTasks },
+      nodes: { suggestNextTasks, claimTask, getNodes: jest.fn().mockResolvedValue([]) },
+      plans: { getPlan: jest.fn().mockResolvedValue({ id: 'plan-1', title: 'P' }) },
+      context: {
+        getPlanContext: jest.fn().mockResolvedValue({ phases: [] }),
+        getNodeContext: jest.fn().mockResolvedValue({ node: { title: 'Active work', status: 'in_progress' }, ancestry: [], knowledge: [] }),
+      },
+    });
+
+    const result = await localClient.getNextTask({ dir: tempDir, planId: 'plan-1' });
+    expect(result.task.id).toBe('active-1');
+    expect(result.source).toBe('resume_in_progress');
+    expect(suggestNextTasks).not.toHaveBeenCalled();
+  });
+
+  test('getNextTask uses suggest_next_tasks when no in_progress exists', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
     process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
     const { writeConfig } = require('../src/cli/config');
@@ -437,16 +465,12 @@ describe('local client helpers', () => {
     ]);
     const claimTask = jest.fn().mockResolvedValue({});
     const getMyTasks = jest.fn().mockResolvedValue([
-      { id: 'queue-1', title: 'Less smart pick', status: 'in_progress', plan_id: 'plan-1' },
+      { id: 'queue-1', title: 'Pending', status: 'not_started', plan_id: 'plan-1' },
     ]);
 
     createApiClient.mockReturnValue({
       users: { getMyTasks },
-      nodes: {
-        suggestNextTasks,
-        claimTask,
-        getNodes: jest.fn().mockResolvedValue([]),
-      },
+      nodes: { suggestNextTasks, claimTask, getNodes: jest.fn().mockResolvedValue([]) },
       plans: { getPlan: jest.fn().mockResolvedValue({ id: 'plan-1', title: 'P' }) },
       context: {
         getPlanContext: jest.fn().mockResolvedValue({ phases: [] }),
@@ -456,14 +480,39 @@ describe('local client helpers', () => {
 
     const result = await localClient.getNextTask({ dir: tempDir, planId: 'plan-1' });
     expect(suggestNextTasks).toHaveBeenCalledWith('plan-1', 5);
-    expect(getMyTasks).not.toHaveBeenCalled();
     expect(result.task.id).toBe('suggested-1');
     expect(result.source).toBe('suggest_next_tasks');
-    expect(result.claimed).toBe(true);
     expect(claimTask).toHaveBeenCalledWith('plan-1', 'suggested-1', 'ap-cli', 30);
   });
 
-  test('getNextTask falls back to my-tasks when suggest_next_tasks returns empty', async () => {
+  test('getNextTask --fresh skips in_progress and uses suggest_next_tasks', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret', defaultPlanId: 'plan-1' });
+
+    const suggestNextTasks = jest.fn().mockResolvedValue([
+      { id: 'suggested-1', title: 'Fresh pick', status: 'not_started' },
+    ]);
+    const getMyTasks = jest.fn();
+
+    createApiClient.mockReturnValue({
+      users: { getMyTasks },
+      nodes: { suggestNextTasks, claimTask: jest.fn().mockResolvedValue({}), getNodes: jest.fn().mockResolvedValue([]) },
+      plans: { getPlan: jest.fn().mockResolvedValue({ id: 'plan-1', title: 'P' }) },
+      context: {
+        getPlanContext: jest.fn().mockResolvedValue({ phases: [] }),
+        getNodeContext: jest.fn().mockResolvedValue({ node: { title: 'Fresh pick', status: 'not_started' }, ancestry: [], knowledge: [] }),
+      },
+    });
+
+    const result = await localClient.getNextTask({ dir: tempDir, planId: 'plan-1', fresh: true });
+    expect(getMyTasks).not.toHaveBeenCalled();
+    expect(result.task.id).toBe('suggested-1');
+    expect(result.source).toBe('suggest_next_tasks');
+  });
+
+  test('getNextTask falls back to not_started in queue when no in_progress and no suggestions', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
     process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
     const { writeConfig } = require('../src/cli/config');
@@ -472,7 +521,7 @@ describe('local client helpers', () => {
     createApiClient.mockReturnValue({
       users: {
         getMyTasks: jest.fn().mockResolvedValue([
-          { id: 'queue-1', title: 'Queue pick', status: 'in_progress', plan_id: 'plan-1' },
+          { id: 'queue-1', title: 'Pending', status: 'not_started', plan_id: 'plan-1' },
         ]),
       },
       nodes: {
@@ -483,13 +532,13 @@ describe('local client helpers', () => {
       plans: { getPlan: jest.fn().mockResolvedValue({ id: 'plan-1', title: 'P' }) },
       context: {
         getPlanContext: jest.fn().mockResolvedValue({ phases: [] }),
-        getNodeContext: jest.fn().mockResolvedValue({ node: { title: 'Queue pick', status: 'in_progress' }, ancestry: [], knowledge: [] }),
+        getNodeContext: jest.fn().mockResolvedValue({ node: { title: 'Pending', status: 'not_started' }, ancestry: [], knowledge: [] }),
       },
     });
 
     const result = await localClient.getNextTask({ dir: tempDir, planId: 'plan-1' });
     expect(result.task.id).toBe('queue-1');
-    expect(result.source).toBe('my_tasks');
+    expect(result.source).toBe('my_tasks_fallback');
   });
 
   test('getNextTask continues when claim fails (claim is best-effort)', async () => {

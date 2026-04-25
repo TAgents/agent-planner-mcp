@@ -330,7 +330,12 @@ function renderCurrentTask(selection, plan, nodeContext, planContext) {
   lines.push('- When complete, run `agent-planner-mcp done --message "what changed"` (logs progress and writes a learning to the temporal graph).');
   lines.push('- Refresh with `agent-planner-mcp context --plan-id ... --node-id ...` when you need updated context.');
   lines.push('');
-  lines.push('Generated file. Safe to overwrite with `agent-planner-mcp context ...`.');
+  lines.push('## Source of truth');
+  lines.push('');
+  lines.push('- AgentPlanner (the API) is the source of truth for this plan and task.');
+  lines.push('- Files under `.agentplanner/` are a regeneratable cache produced by `agent-planner-mcp context`.');
+  lines.push('- Do not hand-edit `.agentplanner/` files; changes here are not synced back. Use the writeback commands above.');
+  lines.push('- Safe to delete `.agentplanner/` at any time — re-run `context` or `next` to repopulate.');
   lines.push('');
   return lines.join('\n');
 }
@@ -549,6 +554,19 @@ async function pickViaSuggestNextTasks(api, planId, limit) {
   }
 }
 
+async function pickFromQueue(options, status) {
+  try {
+    const { tasks, planId: queuePlanId } = await getMyTasks(options);
+    const list = Array.isArray(tasks) ? tasks : tasks?.tasks || [];
+    const match = list.find((t) => t.status === status);
+    if (!match) return null;
+    if (!match.plan_id && queuePlanId) match.plan_id = queuePlanId;
+    return match;
+  } catch (_err) {
+    return null;
+  }
+}
+
 async function getNextTask(options = {}) {
   const { apiUrl, token } = resolveApiConfig(options);
   if (!token) {
@@ -558,27 +576,36 @@ async function getNextTask(options = {}) {
   const config = readConfig();
   const planId = options.planId || config.defaultPlanId || null;
   const api = createApiClient(token, { apiUrl });
+  const fresh = Boolean(options.fresh);
 
-  let chosen = await pickViaSuggestNextTasks(api, planId, options.limit ? Number(options.limit) : 5);
-  let source = chosen ? 'suggest_next_tasks' : null;
+  // Resolution order:
+  //  1. Resume any in_progress task in scope (unless --fresh).
+  //  2. Dependency-aware recommendation via suggest_next_tasks.
+  //  3. Fallback: first not_started task in the my-tasks queue.
+  //
+  // `tasks` is the queue view; `next` is the smart picker. `next --fresh`
+  // forces a fresh recommendation even when active work exists.
+
+  let chosen = null;
+  let source = null;
+
+  if (!fresh) {
+    chosen = await pickFromQueue(options, 'in_progress');
+    if (chosen) source = 'resume_in_progress';
+  }
 
   if (!chosen) {
-    const { tasks, planId: queuePlanId } = await getMyTasks(options);
-    const taskList = Array.isArray(tasks) ? tasks : tasks?.tasks || [];
-    if (!taskList.length) {
-      throw new Error('No tasks in the queue. Nothing to do.');
-    }
+    chosen = await pickViaSuggestNextTasks(api, planId, options.limit ? Number(options.limit) : 5);
+    if (chosen) source = 'suggest_next_tasks';
+  }
 
-    const inProgress = taskList.filter((t) => t.status === 'in_progress');
-    const notStarted = taskList.filter((t) => t.status === 'not_started');
-    chosen = inProgress[0] || notStarted[0];
-    if (!chosen) {
-      throw new Error('No actionable tasks (in_progress or not_started) found.');
-    }
-    if (!chosen.plan_id && queuePlanId) {
-      chosen.plan_id = queuePlanId;
-    }
-    source = 'my_tasks';
+  if (!chosen) {
+    chosen = await pickFromQueue(options, 'not_started');
+    if (chosen) source = 'my_tasks_fallback';
+  }
+
+  if (!chosen) {
+    throw new Error('No actionable tasks (in_progress or not_started) found.');
   }
 
   const taskPlanId = chosen.plan_id || planId;

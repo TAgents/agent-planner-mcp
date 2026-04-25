@@ -22,7 +22,7 @@ Usage:
   npx agent-planner-mcp setup                   Interactive setup wizard
   npx agent-planner-mcp login --token <token> [--api-url <url>] [--plan-id <id>]
   npx agent-planner-mcp tasks [--plan-id <id>]
-  npx agent-planner-mcp next [--plan-id <id>]
+  npx agent-planner-mcp next [--plan-id <id>] [--fresh]
   npx agent-planner-mcp context --plan-id <id> [--node-id <id>] [--dir <path>]
   npx agent-planner-mcp start [--plan-id <id>] [--node-id <id>]
   npx agent-planner-mcp blocked [--plan-id <id>] [--node-id <id>] [--message "..."]
@@ -33,13 +33,16 @@ Commands:
   login    Authenticate and store credentials. If --plan-id is passed it is
            saved as the default plan. If exactly one plan is accessible, it is
            auto-selected as the default.
-  tasks    List your task queue (uses /users/my-tasks). Filters by --plan-id
-           or falls back to the stored default plan.
-  next     Pick the next task using suggest_next_tasks (dependency-aware,
-           RPI-aware). Falls back to the my-tasks queue if no plan is selected
-           or no suggestions are available. Claims the picked task for 30
-           minutes and materializes its context files.
-  context  Pull context for a specific plan/node and write .agentplanner/ files.
+  tasks    Queue view: list tasks assigned to you (uses /users/my-tasks).
+           Filters by --plan-id or falls back to the stored default plan.
+  next     Smart picker. Resolution order: (1) resume any in_progress task
+           in scope, (2) dependency-aware recommendation via suggest_next_tasks,
+           (3) fall back to first not_started task in your queue. Claims the
+           picked task for 30 minutes and materializes its context files.
+           Pass --fresh to skip step 1 and force a fresh recommendation
+           even when active work exists.
+  context  Pull context for a specific plan/node and write .agentplanner/ files
+           (a regeneratable cache; AgentPlanner remains the source of truth).
            Surfaces plan health (quality, coherence) and any contradictions
            detected on the task. --node-id can be used alone when a default
            plan is set.
