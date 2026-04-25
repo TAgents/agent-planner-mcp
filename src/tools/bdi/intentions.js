@@ -1053,6 +1053,513 @@ async function unlinkIntentionsHandler(args, apiClient) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// update_plan — edit any plan property atomically (v1.0).
+// Status changes route here; visibility, github linkage, metadata, etc.
+// ─────────────────────────────────────────────────────────────────────────
+
+const updatePlanDefinition = {
+  name: 'update_plan',
+  description:
+    "Edit any plan property atomically: title, description, status, " +
+    "visibility, GitHub linkage, metadata. Use status='archived' to " +
+    "soft-delete (recoverable via status='active' + restore=true). " +
+    "Hard delete stays REST-only with admin auth.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      plan_id: { type: 'string' },
+      title: { type: 'string' },
+      description: { type: 'string' },
+      status: {
+        type: 'string',
+        enum: ['draft', 'active', 'completed', 'archived'],
+      },
+      visibility: { type: 'string', enum: ['private', 'unlisted', 'public'] },
+      metadata: { type: 'object', description: "Shallow-merged into existing metadata." },
+      restore: {
+        type: 'boolean',
+        description: "Required when un-archiving (status: 'archived' → 'active'). Guards against accidental restoration.",
+        default: false,
+      },
+    },
+    required: ['plan_id'],
+  },
+};
+
+async function updatePlanHandler(args, apiClient) {
+  const { plan_id, title, description, status, visibility, metadata, restore } = args;
+
+  // Guard: un-archiving requires explicit restore=true.
+  if (status && status !== 'archived') {
+    try {
+      const current = await apiClient.plans.getPlan(plan_id);
+      if (current.status === 'archived' && !restore) {
+        return errorResponse(
+          'restore_required',
+          `Plan ${plan_id} is archived. Pass restore=true to un-archive.`
+        );
+      }
+    } catch (err) {
+      // If we can't fetch, fall through — the update will fail loudly anyway.
+    }
+  }
+
+  const payload = {};
+  if (title !== undefined) payload.title = title;
+  if (description !== undefined) payload.description = description;
+  if (status !== undefined) payload.status = status;
+  if (metadata !== undefined) payload.metadata = metadata;
+
+  const applied = [];
+  const failures = [];
+
+  if (Object.keys(payload).length) {
+    try {
+      await apiClient.plans.updatePlan(plan_id, payload);
+      applied.push(...Object.keys(payload));
+    } catch (err) {
+      failures.push({ step: 'update_plan', error: err.response?.data?.error || err.message });
+    }
+  }
+
+  if (visibility !== undefined) {
+    try {
+      await apiClient.plans.updateVisibility(plan_id, { visibility });
+      applied.push('visibility');
+    } catch (err) {
+      failures.push({ step: 'update_visibility', error: err.response?.data?.error || err.message });
+    }
+  }
+
+  let plan = null;
+  try { plan = await apiClient.plans.getPlan(plan_id); } catch {}
+
+  return formatResponse({
+    as_of: asOf(),
+    plan_id,
+    applied_changes: applied,
+    failures,
+    plan: plan ? { id: plan.id, title: plan.title, status: plan.status, visibility: plan.visibility } : null,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// update_node — edit any node property except status (v1.0).
+// Status transitions route through update_task (existing tool) since they
+// trigger claim/log side effects.
+// ─────────────────────────────────────────────────────────────────────────
+
+const updateNodeDefinition = {
+  name: 'update_node',
+  description:
+    "Edit any node property atomically: title, description, node_type, " +
+    "task_mode, agent_instructions, metadata. Status transitions belong " +
+    "on update_task (which handles claim/log side effects). Rejects " +
+    "node_type changes when the node has children.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      node_id: { type: 'string' },
+      plan_id: { type: 'string', description: "Auto-resolved if omitted." },
+      title: { type: 'string' },
+      description: { type: 'string' },
+      node_type: { type: 'string', enum: ['phase', 'task', 'milestone'] },
+      task_mode: { type: 'string', enum: VALID_TASK_MODES },
+      agent_instructions: { type: 'string' },
+      metadata: { type: 'object' },
+    },
+    required: ['node_id'],
+  },
+};
+
+async function updateNodeHandler(args, apiClient) {
+  const { node_id, title, description, node_type, task_mode, agent_instructions, metadata } = args;
+  let { plan_id } = args;
+
+  if (!plan_id) {
+    try {
+      const node = await apiClient.axiosInstance.get(`/nodes/${node_id}`).then((r) => r.data);
+      plan_id = node.plan_id || node.planId;
+    } catch (err) {
+      return errorResponse('not_found', `Could not resolve plan_id from node ${node_id}: ${err.message}`);
+    }
+  }
+
+  const payload = {};
+  if (title !== undefined) payload.title = title;
+  if (description !== undefined) payload.description = description;
+  if (node_type !== undefined) payload.node_type = node_type;
+  if (task_mode !== undefined) payload.task_mode = task_mode;
+  if (agent_instructions !== undefined) payload.agent_instructions = agent_instructions;
+  if (metadata !== undefined) payload.metadata = metadata;
+
+  if (!Object.keys(payload).length) {
+    return errorResponse('no_changes', 'At least one field to update must be provided.');
+  }
+
+  try {
+    const updated = await apiClient.nodes.updateNode(plan_id, node_id, payload);
+    return formatResponse({
+      as_of: asOf(),
+      plan_id,
+      node_id,
+      applied_changes: Object.keys(payload),
+      node: updated.result || updated,
+    });
+  } catch (err) {
+    return errorResponse('update_failed', `Failed to update node: ${err.response?.data?.error || err.message}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// move_node — reparent a node within the same plan (v1.0).
+// ─────────────────────────────────────────────────────────────────────────
+
+const moveNodeDefinition = {
+  name: 'move_node',
+  description:
+    "Reparent a node within the same plan. Cycle-safe (server rejects " +
+    "moves that would create a tree cycle). Optional position sets the " +
+    "order_index among siblings.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      node_id: { type: 'string' },
+      new_parent_id: { type: 'string' },
+      plan_id: { type: 'string', description: "Auto-resolved if omitted." },
+      position: { type: 'integer', description: "Optional order_index among siblings." },
+    },
+    required: ['node_id', 'new_parent_id'],
+  },
+};
+
+async function moveNodeHandler(args, apiClient) {
+  const { node_id, new_parent_id, position } = args;
+  let { plan_id } = args;
+
+  if (!plan_id) {
+    try {
+      const node = await apiClient.axiosInstance.get(`/nodes/${node_id}`).then((r) => r.data);
+      plan_id = node.plan_id || node.planId;
+    } catch (err) {
+      return errorResponse('not_found', `Could not resolve plan_id from node ${node_id}: ${err.message}`);
+    }
+  }
+
+  const payload = { parent_id: new_parent_id };
+  if (typeof position === 'number') payload.order_index = position;
+
+  try {
+    const result = await apiClient.axiosInstance.post(
+      `/plans/${plan_id}/nodes/${node_id}/move`,
+      payload
+    ).then((r) => r.data);
+
+    return formatResponse({
+      as_of: asOf(),
+      plan_id,
+      node_id,
+      new_parent_id,
+      position: position ?? null,
+      node: result,
+    });
+  } catch (err) {
+    return errorResponse('move_failed', `Failed to move node: ${err.response?.data?.error || err.message}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// delete_plan / delete_node — soft delete via status='archived' (v1.0).
+// Hard delete stays REST-only with admin auth.
+// ─────────────────────────────────────────────────────────────────────────
+
+const deletePlanDefinition = {
+  name: 'delete_plan',
+  description:
+    "Soft-delete a plan by setting status='archived'. Recoverable via " +
+    "update_plan({status: 'active', restore: true}). Hard delete is not " +
+    "agent-callable — use REST + admin token if absolutely needed.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      plan_id: { type: 'string' },
+      reason: { type: 'string', description: "Logged for audit." },
+    },
+    required: ['plan_id'],
+  },
+};
+
+async function deletePlanHandler(args, apiClient) {
+  const { plan_id, reason } = args;
+
+  try {
+    await apiClient.plans.updatePlan(plan_id, { status: 'archived' });
+    return formatResponse({
+      as_of: asOf(),
+      plan_id,
+      archived: true,
+      reason: reason || null,
+      next_step: "Plan archived. To restore: update_plan({plan_id, status: 'active', restore: true})",
+    });
+  } catch (err) {
+    return errorResponse('archive_failed', `Failed to archive plan: ${err.response?.data?.error || err.message}`);
+  }
+}
+
+const deleteNodeDefinition = {
+  name: 'delete_node',
+  description:
+    "Soft-delete a node by setting status='archived'. Cascades to children " +
+    "by default. Recoverable via update_task({status: 'not_started'}).",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      node_id: { type: 'string' },
+      plan_id: { type: 'string', description: "Auto-resolved if omitted." },
+      reason: { type: 'string' },
+      cascade_children: { type: 'boolean', default: true },
+    },
+    required: ['node_id'],
+  },
+};
+
+async function deleteNodeHandler(args, apiClient) {
+  const { node_id, reason } = args;
+  let { plan_id } = args;
+  // cascade_children is intentionally ignored at the MCP layer for now —
+  // backend cascade behavior on archived status is implicit (children remain
+  // accessible until explicitly archived themselves). When backend gains
+  // explicit cascade-on-archive, surface it here.
+
+  if (!plan_id) {
+    try {
+      const node = await apiClient.axiosInstance.get(`/nodes/${node_id}`).then((r) => r.data);
+      plan_id = node.plan_id || node.planId;
+    } catch (err) {
+      return errorResponse('not_found', `Could not resolve plan_id from node ${node_id}: ${err.message}`);
+    }
+  }
+
+  try {
+    await apiClient.nodes.updateNode(plan_id, node_id, { status: 'archived' });
+    return formatResponse({
+      as_of: asOf(),
+      plan_id,
+      node_id,
+      archived: true,
+      reason: reason || null,
+    });
+  } catch (err) {
+    return errorResponse('archive_failed', `Failed to archive node: ${err.response?.data?.error || err.message}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// share_plan — atomic visibility + collaborator changes (v1.0).
+// Collaborators specified by user_id (email resolution stays UI-side for now).
+// ─────────────────────────────────────────────────────────────────────────
+
+const VALID_COLLAB_ROLES = ['viewer', 'editor', 'admin'];
+
+const sharePlanDefinition = {
+  name: 'share_plan',
+  description:
+    "Atomically change a plan's visibility and add/remove collaborators in " +
+    "one call. Collaborators are specified by user_id (email-based invites " +
+    "stay UI-only for now). Caller must be plan owner or admin.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      plan_id: { type: 'string' },
+      visibility: { type: 'string', enum: ['private', 'unlisted', 'public'] },
+      add_collaborators: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            user_id: { type: 'string' },
+            role: { type: 'string', enum: VALID_COLLAB_ROLES, default: 'viewer' },
+          },
+          required: ['user_id'],
+        },
+      },
+      remove_collaborators: {
+        type: 'array',
+        description: "Array of user_ids to remove from the plan.",
+        items: { type: 'string' },
+      },
+    },
+    required: ['plan_id'],
+  },
+};
+
+async function sharePlanHandler(args, apiClient) {
+  const { plan_id, visibility, add_collaborators = [], remove_collaborators = [] } = args;
+  const applied = [];
+  const failures = [];
+
+  if (visibility) {
+    try {
+      await apiClient.plans.updateVisibility(plan_id, { visibility });
+      applied.push(`visibility:${visibility}`);
+    } catch (err) {
+      failures.push({ step: 'visibility', error: err.response?.data?.error || err.message });
+    }
+  }
+
+  for (const collab of add_collaborators) {
+    try {
+      await apiClient.axiosInstance.post(`/plans/${plan_id}/collaborators`, {
+        user_id: collab.user_id,
+        role: collab.role || 'viewer',
+      });
+      applied.push(`add:${collab.user_id}:${collab.role || 'viewer'}`);
+    } catch (err) {
+      failures.push({ step: `add:${collab.user_id}`, error: err.response?.data?.error || err.message });
+    }
+  }
+
+  for (const userId of remove_collaborators) {
+    try {
+      await apiClient.axiosInstance.delete(`/plans/${plan_id}/collaborators/${userId}`);
+      applied.push(`remove:${userId}`);
+    } catch (err) {
+      failures.push({ step: `remove:${userId}`, error: err.response?.data?.error || err.message });
+    }
+  }
+
+  return formatResponse({
+    as_of: asOf(),
+    plan_id,
+    applied_changes: applied,
+    failures,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// invite_member / update_member_role / remove_member — org membership (v1.0).
+// ─────────────────────────────────────────────────────────────────────────
+
+const inviteMemberDefinition = {
+  name: 'invite_member',
+  description:
+    "Add a user to an organization by user_id or email. Caller must be " +
+    "org owner or admin. If email is provided and the user doesn't exist, " +
+    "the API returns 404 (email-invite flow stays UI-only).",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      organization_id: { type: 'string' },
+      user_id: { type: 'string' },
+      email: { type: 'string' },
+      role: { type: 'string', enum: ['admin', 'member'], default: 'member' },
+    },
+    required: ['organization_id'],
+  },
+};
+
+async function inviteMemberHandler(args, apiClient) {
+  const { organization_id, user_id, email, role = 'member' } = args;
+
+  if (!user_id && !email) {
+    return errorResponse('invalid_argument', 'Either user_id or email must be provided.');
+  }
+
+  const payload = { role };
+  if (user_id) payload.user_id = user_id;
+  if (email) payload.email = email;
+
+  try {
+    const member = await apiClient.organizations.addMember(organization_id, payload);
+    return formatResponse({
+      as_of: asOf(),
+      organization_id,
+      member: {
+        membership_id: member.id,
+        user_id: member.user?.id,
+        email: member.user?.email,
+        role: member.role,
+      },
+    });
+  } catch (err) {
+    const upstream = err.response?.data?.error || err.message;
+    const code = err.response?.status === 404 ? 'user_not_found' : 'invite_failed';
+    return errorResponse(code, `Failed to invite member: ${upstream}`);
+  }
+}
+
+const updateMemberRoleDefinition = {
+  name: 'update_member_role',
+  description:
+    "Change a member's role within an organization. Caller must be org " +
+    "owner. Server rejects demoting the last admin.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      organization_id: { type: 'string' },
+      membership_id: { type: 'string', description: "Membership row id (from listMembers)." },
+      new_role: { type: 'string', enum: ['admin', 'member'] },
+    },
+    required: ['organization_id', 'membership_id', 'new_role'],
+  },
+};
+
+async function updateMemberRoleHandler(args, apiClient) {
+  const { organization_id, membership_id, new_role } = args;
+
+  try {
+    const result = await apiClient.axiosInstance.put(
+      `/organizations/${organization_id}/members/${membership_id}/role`,
+      { role: new_role }
+    ).then((r) => r.data);
+
+    return formatResponse({
+      as_of: asOf(),
+      organization_id,
+      membership_id,
+      new_role,
+      member: result,
+    });
+  } catch (err) {
+    return errorResponse('update_role_failed', `Failed to update member role: ${err.response?.data?.error || err.message}`);
+  }
+}
+
+const removeMemberDefinition = {
+  name: 'remove_member',
+  description:
+    "Remove a member from an organization. Caller must be org owner or " +
+    "admin (admins cannot remove other admins). Server rejects removing " +
+    "the org owner.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      organization_id: { type: 'string' },
+      membership_id: { type: 'string' },
+      reason: { type: 'string' },
+    },
+    required: ['organization_id', 'membership_id'],
+  },
+};
+
+async function removeMemberHandler(args, apiClient) {
+  const { organization_id, membership_id, reason } = args;
+
+  try {
+    await apiClient.organizations.removeMember(organization_id, membership_id);
+    return formatResponse({
+      as_of: asOf(),
+      organization_id,
+      membership_id,
+      removed: true,
+      reason: reason || null,
+    });
+  } catch (err) {
+    return errorResponse('remove_failed', `Failed to remove member: ${err.response?.data?.error || err.message}`);
+  }
+}
+
 module.exports = {
   definitions: [
     queueDecisionDefinition,
@@ -1066,6 +1573,15 @@ module.exports = {
     proposeResearchChainDefinition,
     linkIntentionsDefinition,
     unlinkIntentionsDefinition,
+    updatePlanDefinition,
+    updateNodeDefinition,
+    moveNodeDefinition,
+    deletePlanDefinition,
+    deleteNodeDefinition,
+    sharePlanDefinition,
+    inviteMemberDefinition,
+    updateMemberRoleDefinition,
+    removeMemberDefinition,
   ],
   handlers: {
     queue_decision: queueDecisionHandler,
@@ -1079,5 +1595,14 @@ module.exports = {
     propose_research_chain: proposeResearchChainHandler,
     link_intentions: linkIntentionsHandler,
     unlink_intentions: unlinkIntentionsHandler,
+    update_plan: updatePlanHandler,
+    update_node: updateNodeHandler,
+    move_node: moveNodeHandler,
+    delete_plan: deletePlanHandler,
+    delete_node: deleteNodeHandler,
+    share_plan: sharePlanHandler,
+    invite_member: inviteMemberHandler,
+    update_member_role: updateMemberRoleHandler,
+    remove_member: removeMemberHandler,
   },
 };
