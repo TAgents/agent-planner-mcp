@@ -23,12 +23,16 @@ A lightweight CLI loop for task-driven workflows. No MCP client required — use
 - `.agentplanner/` files are a regeneratable cache, written by the CLI for the agent to read.
 - The agent works in the real repo. Status changes flow back via explicit writeback commands. There is no live sync.
 
+> **Running locally?** See [agent-planner/LOCAL_QUICKSTART.md](https://github.com/TAgents/agent-planner/blob/main/LOCAL_QUICKSTART.md) for the 5-minute path to a full local stack you can point this CLI at. Use `--api-url http://localhost:3000` in the `login` step below.
+
 ### The loop
 
 ```bash
 # 1. Login — saves credentials and auto-selects a default plan
 #    (pass --plan-id to pick one, or it auto-selects if you have exactly one plan)
 npx agent-planner-mcp login --token <token> --api-url https://agentplanner.io/api [--plan-id <id>]
+#    Localhost variant (after `docker compose -f docker-compose.local.yml up`):
+npx agent-planner-mcp login --token <token> --api-url http://localhost:3000
 
 # 2. See your task queue
 npx agent-planner-mcp tasks [--plan-id <id>]
