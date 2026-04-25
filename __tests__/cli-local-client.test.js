@@ -322,4 +322,317 @@ describe('local client helpers', () => {
     const md = localClient.renderCurrentTask(selection, plan, nodeContext, planContext);
     expect(md).not.toContain('## Linked goals');
   });
+
+  test('renderCurrentTask surfaces plan health when quality_score present', () => {
+    const selection = { planId: 'p1', nodeId: 'n1' };
+    const plan = {
+      id: 'p1',
+      title: 'Plan',
+      quality_score: 0.62,
+      quality_rationale: 'Few explicit dependencies between tasks.',
+      coherence_checked_at: '2026-04-20T10:00:00Z',
+    };
+    const nodeContext = {
+      node: { title: 'Task', status: 'in_progress', description: 'Do it' },
+      ancestry: [],
+      knowledge: [],
+    };
+    const planContext = { phases: [] };
+
+    const md = localClient.renderCurrentTask(selection, plan, nodeContext, planContext);
+    expect(md).toContain('## Plan health');
+    expect(md).toContain('Quality score: 0.62');
+    expect(md).toContain('Few explicit dependencies');
+    expect(md).toContain('Last coherence check: 2026-04-20T10:00:00Z');
+  });
+
+  test('renderCurrentTask flags coherence_status contradiction_detected', () => {
+    const selection = { planId: 'p1', nodeId: 'n1' };
+    const plan = { id: 'p1', title: 'Plan' };
+    const nodeContext = {
+      node: { title: 'Task', status: 'in_progress', description: 'Do it', coherence_status: 'contradiction_detected' },
+      ancestry: [],
+      knowledge: [],
+    };
+    const planContext = { phases: [] };
+
+    const md = localClient.renderCurrentTask(selection, plan, nodeContext, planContext);
+    expect(md).toContain('## Coherence warning');
+    expect(md).toContain('contradiction_detected');
+    expect(md).toContain('check_contradictions');
+  });
+
+  test('renderCurrentTask flags coherence_status stale_beliefs', () => {
+    const selection = { planId: 'p1', nodeId: 'n1' };
+    const plan = { id: 'p1', title: 'Plan' };
+    const nodeContext = {
+      node: { title: 'Task', status: 'in_progress', description: 'Do it', coherence_status: 'stale_beliefs' },
+      ancestry: [],
+      knowledge: [],
+    };
+    const planContext = { phases: [] };
+
+    const md = localClient.renderCurrentTask(selection, plan, nodeContext, planContext);
+    expect(md).toContain('## Coherence warning');
+    expect(md).toContain('stale_beliefs');
+    expect(md).toContain('recall_knowledge');
+  });
+
+  test('renderCurrentTask omits coherence warning when status is clean or unchecked', () => {
+    const selection = { planId: 'p1', nodeId: 'n1' };
+    const plan = { id: 'p1', title: 'Plan' };
+    const nodeContext = {
+      node: { title: 'Task', status: 'in_progress', description: 'Do it', coherence_status: 'unchecked' },
+      ancestry: [],
+      knowledge: [],
+    };
+    const planContext = { phases: [] };
+
+    const md = localClient.renderCurrentTask(selection, plan, nodeContext, planContext);
+    expect(md).not.toContain('## Coherence warning');
+  });
+
+  test('renderCurrentTask renders detected contradictions when present in nodeContext', () => {
+    const selection = { planId: 'p1', nodeId: 'n1' };
+    const plan = { id: 'p1', title: 'Plan' };
+    const nodeContext = {
+      node: { title: 'Task', status: 'in_progress', description: 'Do it' },
+      ancestry: [],
+      knowledge: [],
+      contradictions: [
+        { summary: 'Auth uses both OAuth and SAML — pick one' },
+        { summary: 'Deployment target conflicts: K8s vs ECS' },
+      ],
+    };
+    const planContext = { phases: [] };
+
+    const md = localClient.renderCurrentTask(selection, plan, nodeContext, planContext);
+    expect(md).toContain('## Detected contradictions');
+    expect(md).toContain('OAuth and SAML');
+    expect(md).toContain('K8s vs ECS');
+  });
+
+  test('renderCurrentTask surfaces task_mode when not free', () => {
+    const selection = { planId: 'p1', nodeId: 'n1' };
+    const plan = { id: 'p1', title: 'Plan' };
+    const nodeContext = {
+      node: { title: 'Task', status: 'in_progress', description: 'Do it', task_mode: 'implement' },
+      ancestry: [],
+      knowledge: [],
+    };
+    const planContext = { phases: [] };
+
+    const md = localClient.renderCurrentTask(selection, plan, nodeContext, planContext);
+    expect(md).toContain('Task mode: implement');
+  });
+
+  test('getNextTask prefers suggest_next_tasks over my-tasks queue', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret', defaultPlanId: 'plan-1' });
+
+    const suggestNextTasks = jest.fn().mockResolvedValue([
+      { id: 'suggested-1', title: 'Dependency-aware pick', status: 'not_started', task_mode: 'implement' },
+    ]);
+    const claimTask = jest.fn().mockResolvedValue({});
+    const getMyTasks = jest.fn().mockResolvedValue([
+      { id: 'queue-1', title: 'Less smart pick', status: 'in_progress', plan_id: 'plan-1' },
+    ]);
+
+    createApiClient.mockReturnValue({
+      users: { getMyTasks },
+      nodes: {
+        suggestNextTasks,
+        claimTask,
+        getNodes: jest.fn().mockResolvedValue([]),
+      },
+      plans: { getPlan: jest.fn().mockResolvedValue({ id: 'plan-1', title: 'P' }) },
+      context: {
+        getPlanContext: jest.fn().mockResolvedValue({ phases: [] }),
+        getNodeContext: jest.fn().mockResolvedValue({ node: { title: 'Dependency-aware pick', status: 'not_started' }, ancestry: [], knowledge: [] }),
+      },
+    });
+
+    const result = await localClient.getNextTask({ dir: tempDir, planId: 'plan-1' });
+    expect(suggestNextTasks).toHaveBeenCalledWith('plan-1', 5);
+    expect(getMyTasks).not.toHaveBeenCalled();
+    expect(result.task.id).toBe('suggested-1');
+    expect(result.source).toBe('suggest_next_tasks');
+    expect(result.claimed).toBe(true);
+    expect(claimTask).toHaveBeenCalledWith('plan-1', 'suggested-1', 'ap-cli', 30);
+  });
+
+  test('getNextTask falls back to my-tasks when suggest_next_tasks returns empty', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret', defaultPlanId: 'plan-1' });
+
+    createApiClient.mockReturnValue({
+      users: {
+        getMyTasks: jest.fn().mockResolvedValue([
+          { id: 'queue-1', title: 'Queue pick', status: 'in_progress', plan_id: 'plan-1' },
+        ]),
+      },
+      nodes: {
+        suggestNextTasks: jest.fn().mockResolvedValue([]),
+        claimTask: jest.fn().mockResolvedValue({}),
+        getNodes: jest.fn().mockResolvedValue([]),
+      },
+      plans: { getPlan: jest.fn().mockResolvedValue({ id: 'plan-1', title: 'P' }) },
+      context: {
+        getPlanContext: jest.fn().mockResolvedValue({ phases: [] }),
+        getNodeContext: jest.fn().mockResolvedValue({ node: { title: 'Queue pick', status: 'in_progress' }, ancestry: [], knowledge: [] }),
+      },
+    });
+
+    const result = await localClient.getNextTask({ dir: tempDir, planId: 'plan-1' });
+    expect(result.task.id).toBe('queue-1');
+    expect(result.source).toBe('my_tasks');
+  });
+
+  test('getNextTask continues when claim fails (claim is best-effort)', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret', defaultPlanId: 'plan-1' });
+
+    createApiClient.mockReturnValue({
+      users: { getMyTasks: jest.fn() },
+      nodes: {
+        suggestNextTasks: jest.fn().mockResolvedValue([{ id: 'n1', title: 'T', status: 'not_started' }]),
+        claimTask: jest.fn().mockRejectedValue(new Error('Already claimed')),
+        getNodes: jest.fn().mockResolvedValue([]),
+      },
+      plans: { getPlan: jest.fn().mockResolvedValue({ id: 'plan-1', title: 'P' }) },
+      context: {
+        getPlanContext: jest.fn().mockResolvedValue({ phases: [] }),
+        getNodeContext: jest.fn().mockResolvedValue({ node: { title: 'T', status: 'not_started' }, ancestry: [], knowledge: [] }),
+      },
+    });
+
+    const result = await localClient.getNextTask({ dir: tempDir, planId: 'plan-1' });
+    expect(result.task.id).toBe('n1');
+    expect(result.claimed).toBe(false);
+  });
+
+  test('updateStatus start claims the task', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { ensureDir, writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret' });
+
+    const stateDir = path.join(tempDir, '.agentplanner');
+    ensureDir(stateDir);
+    fs.writeFileSync(path.join(stateDir, 'context.json'), JSON.stringify({ selection: { planId: 'plan-1', nodeId: 'node-1' } }));
+
+    const claimTask = jest.fn().mockResolvedValue({});
+    createApiClient.mockReturnValue({
+      nodes: { updateNodeStatus: jest.fn().mockResolvedValue({}), claimTask },
+      logs: { addLogEntry: jest.fn() },
+    });
+
+    const result = await localClient.updateStatus('start', { dir: tempDir });
+    expect(claimTask).toHaveBeenCalledWith('plan-1', 'node-1', 'ap-cli', 30);
+    expect(result.claimed).toBe(true);
+  });
+
+  test('updateStatus blocked releases the claim', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { ensureDir, writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret' });
+
+    const stateDir = path.join(tempDir, '.agentplanner');
+    ensureDir(stateDir);
+    fs.writeFileSync(path.join(stateDir, 'context.json'), JSON.stringify({ selection: { planId: 'plan-1', nodeId: 'node-1' } }));
+
+    const releaseTask = jest.fn().mockResolvedValue({});
+    createApiClient.mockReturnValue({
+      nodes: { updateNodeStatus: jest.fn().mockResolvedValue({}), releaseTask },
+      logs: { addLogEntry: jest.fn().mockResolvedValue({}) },
+    });
+
+    const result = await localClient.updateStatus('blocked', { dir: tempDir, message: 'waiting' });
+    expect(releaseTask).toHaveBeenCalledWith('plan-1', 'node-1', 'ap-cli');
+    expect(result.released).toBe(true);
+  });
+
+  test('updateStatus done with --message writes a learning episode', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { ensureDir, writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret' });
+
+    const stateDir = path.join(tempDir, '.agentplanner');
+    ensureDir(stateDir);
+    fs.writeFileSync(path.join(stateDir, 'context.json'), JSON.stringify({
+      selection: { planId: 'plan-1', nodeId: 'node-1' },
+      nodeContext: { node: { title: 'Add login flow' } },
+    }));
+
+    const addEpisode = jest.fn().mockResolvedValue({});
+    const releaseTask = jest.fn().mockResolvedValue({});
+    createApiClient.mockReturnValue({
+      nodes: { updateNodeStatus: jest.fn().mockResolvedValue({}), releaseTask },
+      logs: { addLogEntry: jest.fn().mockResolvedValue({}) },
+      graphiti: { addEpisode },
+    });
+
+    const result = await localClient.updateStatus('done', { dir: tempDir, message: 'Picked JWT — simpler than session cookies for our SPA' });
+    expect(addEpisode).toHaveBeenCalledWith({
+      content: 'Picked JWT — simpler than session cookies for our SPA',
+      name: '[done] Add login flow',
+      plan_id: 'plan-1',
+      node_id: 'node-1',
+      metadata: { entry_type: 'learning', source: 'ap-cli' },
+    });
+    expect(result.learned).toBe(true);
+    expect(result.released).toBe(true);
+  });
+
+  test('updateStatus done without --message does not write learning', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { ensureDir, writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret' });
+
+    const stateDir = path.join(tempDir, '.agentplanner');
+    ensureDir(stateDir);
+    fs.writeFileSync(path.join(stateDir, 'context.json'), JSON.stringify({ selection: { planId: 'plan-1', nodeId: 'node-1' } }));
+
+    const addEpisode = jest.fn();
+    createApiClient.mockReturnValue({
+      nodes: { updateNodeStatus: jest.fn().mockResolvedValue({}), releaseTask: jest.fn().mockResolvedValue({}) },
+      logs: { addLogEntry: jest.fn() },
+      graphiti: { addEpisode },
+    });
+
+    const result = await localClient.updateStatus('done', { dir: tempDir });
+    expect(addEpisode).not.toHaveBeenCalled();
+    expect(result.learned).toBe(false);
+  });
+
+  test('updateStatus done with --message tolerates learning write failure', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-workspace-'));
+    process.env.AGENT_PLANNER_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-config-'));
+    const { ensureDir, writeConfig } = require('../src/cli/config');
+    writeConfig({ apiUrl: 'https://agentplanner.io/api', token: 'secret' });
+
+    const stateDir = path.join(tempDir, '.agentplanner');
+    ensureDir(stateDir);
+    fs.writeFileSync(path.join(stateDir, 'context.json'), JSON.stringify({ selection: { planId: 'plan-1', nodeId: 'node-1' } }));
+
+    createApiClient.mockReturnValue({
+      nodes: { updateNodeStatus: jest.fn().mockResolvedValue({}), releaseTask: jest.fn().mockResolvedValue({}) },
+      logs: { addLogEntry: jest.fn().mockResolvedValue({}) },
+      graphiti: { addEpisode: jest.fn().mockRejectedValue(new Error('Graphiti unavailable')) },
+    });
+
+    const result = await localClient.updateStatus('done', { dir: tempDir, message: 'shipped it' });
+    expect(result.status).toBe('completed');
+    expect(result.learned).toBe(false);
+    expect(result.logged).toBe(true);
+  });
 });

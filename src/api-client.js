@@ -829,6 +829,10 @@ function createApiClient(token, options = {}) {
       claimTask: async (planId, nodeId, agentId = 'mcp-agent', ttlMinutes = 30) => (await client.post(`/plans/${planId}/nodes/${nodeId}/claim`, { agent_id: agentId, ttl_minutes: ttlMinutes })).data,
       releaseTask: async (planId, nodeId, agentId = 'mcp-agent') => (await client.delete(`/plans/${planId}/nodes/${nodeId}/claim`, { data: { agent_id: agentId } })).data,
       getTaskClaim: async (planId, nodeId) => (await client.get(`/plans/${planId}/nodes/${nodeId}/claim`)).data,
+      suggestNextTasks: async (planId, limit = 5) => {
+        const params = new URLSearchParams({ plan_id: planId, limit: String(limit) });
+        return (await client.get(`/context/suggest?${params.toString()}`)).data;
+      },
     },
     comments: {
       getComments: async (planId, nodeId) => (await client.get(`/plans/${planId}/nodes/${nodeId}/comments`)).data,
@@ -899,6 +903,12 @@ function createApiClient(token, options = {}) {
       removeAchiever: async (goalId, depId) => (await client.delete(`/goals/${goalId}/achievers/${depId}`)).data,
       getKnowledgeGaps: async (goalId) => (await client.get(`/goals/${goalId}/knowledge-gaps`)).data,
       getDashboard: async () => (await client.get('/goals/dashboard')).data,
+      getQuality: async (goalId) => (await client.get(`/goals/${goalId}/quality`)).data,
+    },
+    coherence: {
+      getPending: async () => (await client.get('/coherence/pending')).data,
+      runCheck: async (planId, goalId) => (await client.post(`/plans/${planId}/coherence/check`, goalId ? { goal_id: goalId } : {})).data,
+      getPlanCoherence: async (planId) => (await client.get(`/plans/${planId}/coherence`)).data,
     },
     context: {
       getNodeContext: async (nodeId, options = {}) => {

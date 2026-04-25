@@ -35,13 +35,20 @@ Commands:
            auto-selected as the default.
   tasks    List your task queue (uses /users/my-tasks). Filters by --plan-id
            or falls back to the stored default plan.
-  next     Pick the next task to work on (prefers in_progress, then
-           not_started) and materialize its context files.
+  next     Pick the next task using suggest_next_tasks (dependency-aware,
+           RPI-aware). Falls back to the my-tasks queue if no plan is selected
+           or no suggestions are available. Claims the picked task for 30
+           minutes and materializes its context files.
   context  Pull context for a specific plan/node and write .agentplanner/ files.
-           --node-id can be used alone when a default plan is set.
-  start    Mark the current task as in_progress.
-  blocked  Mark the current task as blocked (optionally with --message).
-  done     Mark the current task as completed (optionally with --message).
+           Surfaces plan health (quality, coherence) and any contradictions
+           detected on the task. --node-id can be used alone when a default
+           plan is set.
+  start    Mark the current task as in_progress and claim it (30-minute TTL).
+  blocked  Mark the current task as blocked and release the claim. Optional
+           --message is logged as a challenge entry.
+  done     Mark the current task as completed and release the claim. Optional
+           --message is logged as progress AND written to the temporal
+           knowledge graph as a learning episode.
 
 Environment Variables:
   API_URL          - Agent Planner API URL (default: http://localhost:3000)
@@ -99,6 +106,8 @@ async function main() {
       const result = await getNextTask(options);
       console.log(`Selected task: ${result.task.title || result.task.id} [${result.task.status}]`);
       console.log(`Plan: ${result.planId}`);
+      console.log(`Source: ${result.source}`);
+      if (result.claimed) console.log('Claimed task for 30 minutes.');
       console.log(`Context written to ${result.stateDir}`);
       return;
     }
@@ -117,9 +126,10 @@ async function main() {
     case 'done': {
       const result = await updateStatus(command, options);
       console.log(`Updated ${result.nodeId} to ${result.status}`);
-      if (result.logged) {
-        console.log('Added log entry.');
-      }
+      if (result.logged) console.log('Added log entry.');
+      if (result.claimed) console.log('Claimed task.');
+      if (result.released) console.log('Released task claim.');
+      if (result.learned) console.log('Recorded learning to temporal knowledge graph.');
       return;
     }
 

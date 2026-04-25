@@ -4,6 +4,9 @@ const readline = require('readline');
 const { createApiClient } = require('../api-client');
 const { ensureDir, getConfigPath, mergeConfig, readConfig, resolveApiConfig, writeConfig } = require('./config');
 
+const DEFAULT_AGENT_ID = 'ap-cli';
+const DEFAULT_CLAIM_TTL_MIN = 30;
+
 function parseArgs(args = []) {
   const positional = [];
   const options = {};
@@ -168,6 +171,55 @@ function stripAcceptanceCriteria(text = '') {
   return text.replace(/\n*Acceptance criteria:\s*[\s\S]*/i, '').trim();
 }
 
+function renderPlanHealth(plan) {
+  if (!plan) return [];
+  const hasQuality = plan.quality_score !== null && plan.quality_score !== undefined;
+  const hasChecked = Boolean(plan.coherence_checked_at);
+  if (!hasQuality && !hasChecked) return [];
+
+  const out = ['## Plan health', ''];
+  if (hasQuality) {
+    out.push(`- Quality score: ${plan.quality_score}`);
+    if (plan.quality_rationale) {
+      out.push(`- Rationale: ${plan.quality_rationale}`);
+    }
+  }
+  out.push(`- Last coherence check: ${hasChecked ? plan.coherence_checked_at : 'never'}`);
+  if (!hasChecked) {
+    out.push('- Run `run_coherence_check` (MCP) before acting on stale plans.');
+  }
+  out.push('');
+  return out;
+}
+
+function renderCoherenceWarning(task) {
+  if (!task || !task.coherence_status) return [];
+  const status = task.coherence_status;
+  if (status === 'clean' || status === 'unchecked') return [];
+
+  const out = ['## Coherence warning', ''];
+  out.push(`- Status: ${status}`);
+  if (status === 'contradiction_detected') {
+    out.push('- Supporting knowledge contains contradictions. Run `check_contradictions` (MCP) and re-verify before acting.');
+  } else if (status === 'stale_beliefs') {
+    out.push('- Knowledge backing this task may be outdated. Run `recall_knowledge` (MCP) to refresh before deciding.');
+  }
+  out.push('');
+  return out;
+}
+
+function renderContradictions(nodeContext) {
+  const list = Array.isArray(nodeContext?.contradictions) ? nodeContext.contradictions : [];
+  if (!list.length) return [];
+
+  const out = ['## Detected contradictions', ''];
+  out.push(...renderBulletList(
+    list.slice(0, 5).map((c) => c.summary || c.content || c.message || JSON.stringify(c)),
+  ));
+  out.push('');
+  return out;
+}
+
 function renderCurrentTask(selection, plan, nodeContext, planContext) {
   const lines = [];
   lines.push(`# ${selection.nodeId && nodeContext?.node ? nodeContext.node.title : plan.title}`);
@@ -180,9 +232,14 @@ function renderCurrentTask(selection, plan, nodeContext, planContext) {
   if (selection.nodeId && nodeContext?.node) {
     lines.push(`- Task ID: ${selection.nodeId}`);
     lines.push(`- Status: ${nodeContext.node.status || 'unknown'}`);
+    if (nodeContext.node.task_mode && nodeContext.node.task_mode !== 'free') {
+      lines.push(`- Task mode: ${nodeContext.node.task_mode}`);
+    }
   }
   lines.push(`- Generated: ${new Date().toISOString()}`);
   lines.push('');
+
+  lines.push(...renderPlanHealth(plan));
 
   if (!selection.nodeId || !nodeContext?.node) {
     lines.push('No node selected. Re-run with --node-id to materialize a task-specific current-task.md.');
@@ -199,6 +256,9 @@ function renderCurrentTask(selection, plan, nodeContext, planContext) {
   const description = stripAcceptanceCriteria(task.description || '');
   const knowledge = (nodeContext.knowledge || []).slice(0, 5).map((item) => item.content);
   const phaseSummaries = (planContext?.phases || []).map((phase) => `${phase.title}: ${phase.completed_tasks}/${phase.total_tasks} complete`);
+
+  lines.push(...renderCoherenceWarning(task));
+  lines.push(...renderContradictions(nodeContext));
 
   if (parentPhase) {
     lines.push('## Placement');
@@ -264,10 +324,10 @@ function renderCurrentTask(selection, plan, nodeContext, planContext) {
 
   lines.push('## Suggested loop');
   lines.push('');
-  lines.push('- Run `agent-planner-mcp start` when you begin active work.');
+  lines.push('- Run `agent-planner-mcp start` when you begin active work (claims the task for 30 min).');
   lines.push('- Do the implementation work in the repo, not in `.agentplanner/`.');
-  lines.push('- If blocked, run `agent-planner-mcp blocked --message "why"`.');
-  lines.push('- When complete, run `agent-planner-mcp done --message "what changed"`.');
+  lines.push('- If blocked, run `agent-planner-mcp blocked --message "why"` (releases the claim).');
+  lines.push('- When complete, run `agent-planner-mcp done --message "what changed"` (logs progress and writes a learning to the temporal graph).');
   lines.push('- Refresh with `agent-planner-mcp context --plan-id ... --node-id ...` when you need updated context.');
   lines.push('');
   lines.push('Generated file. Safe to overwrite with `agent-planner-mcp context ...`.');
@@ -317,6 +377,47 @@ async function materializeContext(options = {}) {
   };
 }
 
+async function tryClaim(api, planId, nodeId, options = {}) {
+  if (typeof api.nodes?.claimTask !== 'function') return false;
+  try {
+    await api.nodes.claimTask(
+      planId,
+      nodeId,
+      options.agentId || DEFAULT_AGENT_ID,
+      Number(options.ttl) || DEFAULT_CLAIM_TTL_MIN,
+    );
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+async function tryRelease(api, planId, nodeId, options = {}) {
+  if (typeof api.nodes?.releaseTask !== 'function') return false;
+  try {
+    await api.nodes.releaseTask(planId, nodeId, options.agentId || DEFAULT_AGENT_ID);
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+async function tryRecordLearning(api, { planId, nodeId, taskTitle, message }) {
+  if (!message || typeof api.graphiti?.addEpisode !== 'function') return false;
+  try {
+    await api.graphiti.addEpisode({
+      content: message,
+      name: taskTitle ? `[done] ${taskTitle}` : `[done] ${nodeId}`,
+      plan_id: planId,
+      node_id: nodeId,
+      metadata: { entry_type: 'learning', source: DEFAULT_AGENT_ID },
+    });
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
 async function updateStatus(command, options = {}) {
   const statusMap = {
     start: 'in_progress',
@@ -342,10 +443,33 @@ async function updateStatus(command, options = {}) {
   const api = createApiClient(token, { apiUrl });
   await api.nodes.updateNodeStatus(selection.planId, selection.nodeId, statusMap[command]);
 
+  let logged = false;
   if (options.message && logTypeMap[command]) {
     await api.logs.addLogEntry(selection.planId, selection.nodeId, {
       content: options.message,
       log_type: logTypeMap[command],
+    });
+    logged = true;
+  }
+
+  let claimed = false;
+  let released = false;
+  let learned = false;
+
+  if (command === 'start') {
+    claimed = await tryClaim(api, selection.planId, selection.nodeId, options);
+  } else if (command === 'blocked' || command === 'done') {
+    released = await tryRelease(api, selection.planId, selection.nodeId, options);
+  }
+
+  if (command === 'done' && options.message) {
+    const workspaceContext = readWorkspaceContext(baseDir);
+    const taskTitle = workspaceContext?.nodeContext?.node?.title;
+    learned = await tryRecordLearning(api, {
+      planId: selection.planId,
+      nodeId: selection.nodeId,
+      taskTitle,
+      message: options.message,
     });
   }
 
@@ -353,7 +477,10 @@ async function updateStatus(command, options = {}) {
     planId: selection.planId,
     nodeId: selection.nodeId,
     status: statusMap[command],
-    logged: Boolean(options.message && logTypeMap[command]),
+    logged,
+    claimed,
+    released,
+    learned,
   };
 }
 
@@ -393,26 +520,73 @@ async function getMyTasks(options = {}) {
   };
 }
 
-async function getNextTask(options = {}) {
-  const { tasks, planId } = await getMyTasks(options);
+function normalizeSuggestion(suggestion, planId) {
+  if (!suggestion) return null;
+  const id = suggestion.id || suggestion.node_id;
+  if (!id) return null;
+  return {
+    id,
+    title: suggestion.title,
+    status: suggestion.status,
+    plan_id: suggestion.plan_id || planId,
+    task_mode: suggestion.task_mode,
+    knowledge_ready: suggestion.knowledge_ready,
+    ...suggestion,
+  };
+}
 
-  const taskList = Array.isArray(tasks) ? tasks : tasks.tasks || [];
-  if (!taskList.length) {
-    throw new Error('No tasks in the queue. Nothing to do.');
+async function pickViaSuggestNextTasks(api, planId, limit) {
+  if (!planId || typeof api.nodes?.suggestNextTasks !== 'function') return null;
+  try {
+    const suggestions = await api.nodes.suggestNextTasks(planId, limit);
+    const list = Array.isArray(suggestions)
+      ? suggestions
+      : (suggestions?.suggestions || suggestions?.tasks || []);
+    if (!list.length) return null;
+    return normalizeSuggestion(list[0], planId);
+  } catch (_err) {
+    return null;
+  }
+}
+
+async function getNextTask(options = {}) {
+  const { apiUrl, token } = resolveApiConfig(options);
+  if (!token) {
+    throw new Error(`Not logged in. Run \`agent-planner-mcp login\` first. Config path: ${getConfigPath()}`);
   }
 
-  const inProgress = taskList.filter((t) => t.status === 'in_progress');
-  const notStarted = taskList.filter((t) => t.status === 'not_started');
+  const config = readConfig();
+  const planId = options.planId || config.defaultPlanId || null;
+  const api = createApiClient(token, { apiUrl });
 
-  const chosen = inProgress[0] || notStarted[0];
+  let chosen = await pickViaSuggestNextTasks(api, planId, options.limit ? Number(options.limit) : 5);
+  let source = chosen ? 'suggest_next_tasks' : null;
+
   if (!chosen) {
-    throw new Error('No actionable tasks (in_progress or not_started) found.');
+    const { tasks, planId: queuePlanId } = await getMyTasks(options);
+    const taskList = Array.isArray(tasks) ? tasks : tasks?.tasks || [];
+    if (!taskList.length) {
+      throw new Error('No tasks in the queue. Nothing to do.');
+    }
+
+    const inProgress = taskList.filter((t) => t.status === 'in_progress');
+    const notStarted = taskList.filter((t) => t.status === 'not_started');
+    chosen = inProgress[0] || notStarted[0];
+    if (!chosen) {
+      throw new Error('No actionable tasks (in_progress or not_started) found.');
+    }
+    if (!chosen.plan_id && queuePlanId) {
+      chosen.plan_id = queuePlanId;
+    }
+    source = 'my_tasks';
   }
 
   const taskPlanId = chosen.plan_id || planId;
   if (!taskPlanId) {
     throw new Error('Could not determine plan_id for the selected task. Pass --plan-id explicitly.');
   }
+
+  const claimed = await tryClaim(api, taskPlanId, chosen.id, options);
 
   const contextResult = await materializeContext({
     ...options,
@@ -424,6 +598,8 @@ async function getNextTask(options = {}) {
     task: chosen,
     planId: taskPlanId,
     stateDir: contextResult.stateDir,
+    claimed,
+    source,
   };
 }
 
