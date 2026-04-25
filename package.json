@@ -1,6 +1,6 @@
 {
   "name": "agent-planner-mcp",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "MCP server for AgentPlanner — AI agent orchestration with planning, dependencies, knowledge graphs, and human oversight",
   "main": "src/index.js",
   "bin": {
@@ -15,6 +15,8 @@
     "test:tools": "node test-tools.js",
     "setup": "node src/setup.js",
     "setup-claude-code": "node src/setup-claude-code.js",
+    "build:mcpb": "npm install --omit=dev --ignore-scripts && npx --yes @anthropic-ai/mcpb pack . agent-planner.mcpb",
+    "validate:mcpb": "npx --yes @anthropic-ai/mcpb validate manifest.json",
     "prepublishOnly": "echo 'Ready to publish agent-planner-mcp'"
   },
   "keywords": [

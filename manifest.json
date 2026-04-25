@@ -1,0 +1,65 @@
+{
+  "manifest_version": "0.3",
+  "name": "agent-planner",
+  "display_name": "AgentPlanner",
+  "version": "0.8.1",
+  "description": "AgentPlanner MCP server — hierarchical planning, dependencies, knowledge graph, and human-in-the-loop oversight for AI agents.",
+  "long_description": "Connect Claude to AgentPlanner so it can read plans, goals, and dashboards, claim and update tasks, traverse dependencies, and write to the temporal knowledge graph. Pair with Claude Cowork to build live AgentPlanner dashboards (goal health, decision queue, agent activity) that refresh with current data on open.",
+  "author": {
+    "name": "TalkingAgents",
+    "url": "https://agentplanner.io"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TAgents/agent-planner-mcp"
+  },
+  "homepage": "https://agentplanner.io",
+  "documentation": "https://github.com/TAgents/agent-planner-mcp#readme",
+  "support": "https://github.com/TAgents/agent-planner-mcp/issues",
+  "license": "MIT",
+  "keywords": [
+    "agentplanner",
+    "planning",
+    "goals",
+    "dependencies",
+    "knowledge-graph",
+    "agent-orchestration"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "src/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/src/index.js"],
+      "env": {
+        "API_URL": "${user_config.api_url}",
+        "USER_API_TOKEN": "${user_config.api_token}",
+        "MCP_TRANSPORT": "stdio"
+      }
+    }
+  },
+  "tools_generated": true,
+  "user_config": {
+    "api_token": {
+      "type": "string",
+      "title": "API Token",
+      "description": "Personal API token from AgentPlanner. Generate one at https://agentplanner.io under Settings → API Tokens.",
+      "sensitive": true,
+      "required": true
+    },
+    "api_url": {
+      "type": "string",
+      "title": "API URL",
+      "description": "AgentPlanner API base URL. Use https://agentplanner.io/api for the hosted service or http://localhost:3000 for local development.",
+      "default": "https://agentplanner.io/api",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=16.0.0"
+    }
+  }
+}

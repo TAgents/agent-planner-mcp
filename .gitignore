@@ -28,3 +28,6 @@ coverage/
 # System Files
 .DS_Store
 Thumbs.db
+
+# MCP Bundle build artifact
+*.mcpb

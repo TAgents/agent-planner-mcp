@@ -13,6 +13,36 @@ MCP server for [AgentPlanner](https://agentplanner.io) — AI agent orchestratio
 
 ## Setup
 
+### Claude Desktop — one-click install (`.mcpb`)
+
+The fastest path. Download `agent-planner.mcpb` from the [latest release](https://github.com/TAgents/agent-planner-mcp/releases), double-click it, and Claude Desktop will install the extension and prompt for your AgentPlanner API token. No Node.js setup, no JSON editing.
+
+To build the bundle yourself:
+
+```bash
+npm run build:mcpb        # produces agent-planner.mcpb
+npm run validate:mcpb     # schema-check manifest.json
+```
+
+### Manual config (Claude Desktop, Claude Code, Cursor, etc.)
+
+Add to your MCP client config (`claude_desktop_config.json`, `.cursor/mcp.json`, etc.):
+
+```json
+{
+  "mcpServers": {
+    "agentplanner": {
+      "command": "npx",
+      "args": ["-y", "agent-planner-mcp"],
+      "env": {
+        "API_URL": "https://agentplanner.io/api",
+        "USER_API_TOKEN": "your_token_here"
+      }
+    }
+  }
+}
+```
+
 ## Thin local client (v1)
 
 A lightweight CLI loop for task-driven workflows. No MCP client required — useful when an agent (Claude Code, OpenClaw, a script) just needs to read its current task as files and write status back.
