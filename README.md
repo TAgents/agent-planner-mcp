@@ -13,6 +13,35 @@ MCP server for [AgentPlanner](https://agentplanner.io) — AI agent orchestratio
 
 ## Setup
 
+## Thin local client (v1)
+
+A lightweight CLI loop for task-driven workflows. No MCP client required.
+
+```bash
+# 1. Login — saves credentials and auto-selects a default plan
+#    (pass --plan-id to pick one, or it auto-selects if you have exactly one plan)
+npx agent-planner-mcp login --token <token> --api-url https://agentplanner.io/api [--plan-id <id>]
+
+# 2. See your task queue
+npx agent-planner-mcp tasks [--plan-id <id>]
+
+# 3. Pick the next task (prefers in_progress, then not_started) and pull context
+npx agent-planner-mcp next [--plan-id <id>]
+
+# 4. Or pull context for a specific plan/node
+npx agent-planner-mcp context --plan-id <plan-id> --node-id <node-id>
+#    If a default plan is set, --plan-id can be omitted:
+npx agent-planner-mcp context --node-id <node-id>
+
+# 5. Explicit writeback, no live sync
+npx agent-planner-mcp start
+npx agent-planner-mcp blocked --message "Waiting on API decision"
+npx agent-planner-mcp done --message "Implemented and verified"
+```
+
+Generated files (under `.agentplanner/`) are cache/output only. AgentPlanner stays the source of truth.
+
+
 ### Claude Desktop
 
 Add to your `claude_desktop_config.json`:

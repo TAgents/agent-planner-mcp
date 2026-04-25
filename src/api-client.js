@@ -727,6 +727,17 @@ const graphiti = {
   }
 };
 
+// ─── Users (my-tasks queue) ────────────────────────────────────
+const users = {
+  getMyTasks: async (options = {}) => {
+    const params = new URLSearchParams();
+    if (options.plan_id) params.append('plan_id', options.plan_id);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const response = await apiClient.get(`/users/my-tasks${qs}`);
+    return response.data;
+  },
+};
+
 // ─── Dependencies (cross-plan & external) ─────────────────────
 const dependencies = {
   /**
@@ -765,10 +776,10 @@ const dependencies = {
  * @param {string} token - API token or JWT
  * @returns {Object} - API client modules (plans, nodes, etc.)
  */
-function createApiClient(token) {
+function createApiClient(token, options = {}) {
   const scheme = getAuthScheme(token);
   const client = axios.create({
-    baseURL: process.env.API_URL || 'http://localhost:3000',
+    baseURL: options.apiUrl || process.env.API_URL || 'http://localhost:3000',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': token ? `${scheme} ${token}` : undefined
@@ -916,6 +927,14 @@ function createApiClient(token) {
       listCrossPlan: async (planIds) => (await client.get('/dependencies/cross-plan', { params: { plan_ids: planIds.join(',') } })).data,
       createExternal: async (data) => (await client.post('/dependencies/external', data)).data,
     },
+    users: {
+      getMyTasks: async (options = {}) => {
+        const params = new URLSearchParams();
+        if (options.plan_id) params.append('plan_id', options.plan_id);
+        const qs = params.toString() ? `?${params.toString()}` : '';
+        return (await client.get(`/users/my-tasks${qs}`)).data;
+      },
+    },
     axiosInstance: client,
   };
 }
@@ -945,6 +964,7 @@ module.exports = {
   graphiti,
   dependencies,
   coherence,
+  users,
   axiosInstance,  // Export for direct API calls
   createApiClient  // Factory for per-session clients (HTTP mode)
 };

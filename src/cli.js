@@ -1,39 +1,47 @@
 #!/usr/bin/env node
 
 /**
- * CLI Entry Point for agent-planner-mcp
- * Routes to different commands or starts the MCP server
+ * CLI entry point for agent-planner-mcp.
+ * Preserves the existing MCP server/setup commands while adding
+ * a thin local-client loop for login/context/status writeback.
  */
 
-const path = require('path');
+const { getMyTasks, getNextTask, materializeContext, login, parseArgs, updateStatus } = require('./cli/local-client');
 
 const args = process.argv.slice(2);
 const command = args[0];
+const { options } = parseArgs(args.slice(1));
 
-// Route to different commands
-switch (command) {
-  case 'setup-claude-code':
-    // Run the setup-claude-code script
-    const setupClaudeCode = require('./setup-claude-code.js');
-    setupClaudeCode.main();
-    break;
-
-  case 'setup':
-    // Run the interactive setup wizard
-    require('./setup.js');
-    break;
-
-  case '--help':
-  case '-h':
-  case 'help':
-    console.log(`
-Agent Planner MCP - Model Context Protocol Server
+function printHelp() {
+  console.log(`
+Agent Planner MCP - MCP server + thin local client
 
 Usage:
-  npx agent-planner-mcp                    Start MCP server (requires USER_API_TOKEN)
-  npx agent-planner-mcp setup-claude-code  Install orchestration commands to .claude/
-  npx agent-planner-mcp setup              Interactive setup wizard
-  npx agent-planner-mcp --help             Show this help message
+  npx agent-planner-mcp                          Start MCP server (requires USER_API_TOKEN)
+  npx agent-planner-mcp setup-claude-code       Install orchestration commands to .claude/
+  npx agent-planner-mcp setup                   Interactive setup wizard
+  npx agent-planner-mcp login --token <token> [--api-url <url>] [--plan-id <id>]
+  npx agent-planner-mcp tasks [--plan-id <id>]
+  npx agent-planner-mcp next [--plan-id <id>]
+  npx agent-planner-mcp context --plan-id <id> [--node-id <id>] [--dir <path>]
+  npx agent-planner-mcp start [--plan-id <id>] [--node-id <id>]
+  npx agent-planner-mcp blocked [--plan-id <id>] [--node-id <id>] [--message "..."]
+  npx agent-planner-mcp done [--plan-id <id>] [--node-id <id>] [--message "..."]
+  npx agent-planner-mcp --help
+
+Commands:
+  login    Authenticate and store credentials. If --plan-id is passed it is
+           saved as the default plan. If exactly one plan is accessible, it is
+           auto-selected as the default.
+  tasks    List your task queue (uses /users/my-tasks). Filters by --plan-id
+           or falls back to the stored default plan.
+  next     Pick the next task to work on (prefers in_progress, then
+           not_started) and materialize its context files.
+  context  Pull context for a specific plan/node and write .agentplanner/ files.
+           --node-id can be used alone when a default plan is set.
+  start    Mark the current task as in_progress.
+  blocked  Mark the current task as blocked (optionally with --message).
+  done     Mark the current task as completed (optionally with --message).
 
 Environment Variables:
   API_URL          - Agent Planner API URL (default: http://localhost:3000)
@@ -44,21 +52,101 @@ Environment Variables:
 Documentation:
   https://github.com/talkingagents/agent-planner-mcp
 `);
-    break;
-
-  case '--version':
-  case '-v':
-    const pkg = require('../package.json');
-    console.log(`agent-planner-mcp v${pkg.version}`);
-    break;
-
-  default:
-    // No command or unknown command - start MCP server
-    if (command && !command.startsWith('-')) {
-      console.error(`Unknown command: ${command}`);
-      console.error('Run "npx agent-planner-mcp --help" for usage information.');
-      process.exit(1);
-    }
-    // Start the MCP server
-    require('./index.js');
 }
+
+async function main() {
+  switch (command) {
+    case 'setup-claude-code': {
+      const setupClaudeCode = require('./setup-claude-code.js');
+      setupClaudeCode.main();
+      return;
+    }
+
+    case 'setup':
+      require('./setup.js');
+      return;
+
+    case 'login': {
+      const result = await login(options);
+      console.log(`Saved credentials to ${result.configPath}`);
+      console.log(`API URL: ${result.apiUrl}`);
+      if (result.defaultPlanId) {
+        console.log(`Default plan: ${result.defaultPlanId}`);
+      }
+      return;
+    }
+
+    case 'tasks': {
+      const result = await getMyTasks(options);
+      const taskList = Array.isArray(result.tasks) ? result.tasks : result.tasks?.tasks || [];
+      if (result.planId) {
+        console.log(`Tasks for plan ${result.planId}:`);
+      } else {
+        console.log('All tasks:');
+      }
+      if (!taskList.length) {
+        console.log('  (no tasks)');
+        return;
+      }
+      for (const t of taskList) {
+        const plan = t.plan_id && t.plan_id !== result.planId ? ` (plan: ${t.plan_id})` : '';
+        console.log(`  [${t.status || '?'}] ${t.title || t.id}${plan}`);
+      }
+      return;
+    }
+
+    case 'next': {
+      const result = await getNextTask(options);
+      console.log(`Selected task: ${result.task.title || result.task.id} [${result.task.status}]`);
+      console.log(`Plan: ${result.planId}`);
+      console.log(`Context written to ${result.stateDir}`);
+      return;
+    }
+
+    case 'context': {
+      const result = await materializeContext(options);
+      console.log(`Wrote generated context files to ${result.stateDir}`);
+      if (result.selection.nodeId) {
+        console.log(`Selected node: ${result.selection.nodeId}`);
+      }
+      return;
+    }
+
+    case 'start':
+    case 'blocked':
+    case 'done': {
+      const result = await updateStatus(command, options);
+      console.log(`Updated ${result.nodeId} to ${result.status}`);
+      if (result.logged) {
+        console.log('Added log entry.');
+      }
+      return;
+    }
+
+    case '--help':
+    case '-h':
+    case 'help':
+      printHelp();
+      return;
+
+    case '--version':
+    case '-v': {
+      const pkg = require('../package.json');
+      console.log(`agent-planner-mcp v${pkg.version}`);
+      return;
+    }
+
+    default:
+      if (command && !command.startsWith('-')) {
+        console.error(`Unknown command: ${command}`);
+        console.error('Run "npx agent-planner-mcp --help" for usage information.');
+        process.exit(1);
+      }
+      require('./index.js');
+  }
+}
+
+main().catch((error) => {
+  console.error(error.message || error);
+  process.exit(1);
+});
