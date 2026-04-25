@@ -13,6 +13,9 @@ npm-debug.log*
 dist/
 build/
 
+# Generated local client workspace state
+.agentplanner/
+
 # Coverage directory used by tools like istanbul
 coverage/
 

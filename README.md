@@ -13,6 +13,87 @@ MCP server for [AgentPlanner](https://agentplanner.io) — AI agent orchestratio
 
 ## Setup
 
+## Thin local client (v1)
+
+A lightweight CLI loop for task-driven workflows. No MCP client required — useful when an agent (Claude Code, OpenClaw, a script) just needs to read its current task as files and write status back.
+
+### Mental model
+
+- AgentPlanner (the API) is the source of truth.
+- `.agentplanner/` files are a regeneratable cache, written by the CLI for the agent to read.
+- The agent works in the real repo. Status changes flow back via explicit writeback commands. There is no live sync.
+
+> **Running locally?** See [agent-planner/LOCAL_QUICKSTART.md](https://github.com/TAgents/agent-planner/blob/main/LOCAL_QUICKSTART.md) for the 5-minute path to a full local stack you can point this CLI at. Use `--api-url http://localhost:3000` in the `login` step below.
+
+### The loop
+
+```bash
+# 1. Login — saves credentials and auto-selects a default plan
+#    (pass --plan-id to pick one, or it auto-selects if you have exactly one plan)
+npx agent-planner-mcp login --token <token> --api-url https://agentplanner.io/api [--plan-id <id>]
+#    Localhost variant (after `docker compose -f docker-compose.local.yml up`):
+npx agent-planner-mcp login --token <token> --api-url http://localhost:3000
+
+# 2. See your task queue
+npx agent-planner-mcp tasks [--plan-id <id>]
+
+# 3. Pick the next task and pull context (claims it for 30 minutes)
+npx agent-planner-mcp next [--plan-id <id>]
+#    Force a fresh recommendation even if you have active work:
+npx agent-planner-mcp next --fresh
+
+# 4. Or pull context for a specific plan/node (no claim, no status change)
+npx agent-planner-mcp context --plan-id <plan-id> --node-id <node-id>
+#    If a default plan is set, --plan-id can be omitted:
+npx agent-planner-mcp context --node-id <node-id>
+
+# 5. Explicit writeback. No live sync.
+npx agent-planner-mcp start                          # claim + mark in_progress
+npx agent-planner-mcp blocked --message "Waiting on API decision"
+npx agent-planner-mcp done    --message "Implemented and verified"
+```
+
+### `next` resolution order
+
+`next` is a smart picker. It resolves in this order:
+
+1. **Resume** — if any task in scope is `in_progress`, pick it. (Source: `resume_in_progress`.)
+2. **Recommend** — call `suggest_next_tasks` (dependency- and RPI-aware) for a fresh pick. (Source: `suggest_next_tasks`.)
+3. **Fallback** — first `not_started` task in your queue. (Source: `my_tasks_fallback`.)
+
+`tasks` is the queue view; `next` is the smart picker; `next --fresh` skips step 1 and forces a fresh recommendation even when active work exists.
+
+### What `start`, `blocked`, `done` actually do
+
+| Command | Status | Claim | Log entry | Learning written to Graphiti |
+|---|---|---|---|---|
+| `start` | `in_progress` | claim (30m TTL) | — | — |
+| `blocked --message ...` | `blocked` | release | `challenge` | — |
+| `done --message ...` | `completed` | release | `progress` | yes (entry_type: `learning`) |
+
+All hooks are best-effort: claim/release/learning failures do not block the status update. Claim collisions (another agent already holds the lease) are reported but not fatal.
+
+### What `current-task.md` surfaces
+
+Beyond title, description, agent_instructions, and acceptance criteria, the generated `current-task.md` includes BDI signals from the API responses already being fetched:
+
+- **Plan health** — `quality_score`, rationale, `coherence_checked_at` (or "never")
+- **Coherence warning** — flagged when `node.coherence_status` is `contradiction_detected` or `stale_beliefs`, with concrete next-step pointers (`check_contradictions`, `recall_knowledge`)
+- **Detected contradictions** — listed when present in the node context
+- **Task mode** — shown when not `free` (RPI awareness for `research`/`plan`/`implement`)
+- **Linked goals**, **relevant knowledge** (top 5), **plan progress snapshot**
+
+### When to use CLI vs MCP vs API skill
+
+| You want… | Use |
+|---|---|
+| Zero-setup local task context for any coding agent (Claude Code, OpenClaw, scripts) | **CLI** (this thin client) |
+| Rich, structured tool access from inside an MCP-aware agent (Claude Desktop, Cursor, etc.) | **MCP** (run `npx agent-planner-mcp` as an MCP server) |
+| Direct programmatic integration from your own service | **API** (REST endpoints; same routes the MCP and CLI use) |
+
+The CLI is intentionally thin: it covers the read context + writeback loop and nothing else. For decomposition, dependency creation, knowledge graph queries, RPI chains, coherence runs, and goal management, use the MCP server (or the API directly).
+
+
 ### Claude Desktop
 
 Add to your `claude_desktop_config.json`:
