@@ -94,6 +94,37 @@ The `update_task` call is atomic — status change, log entry, claim release, an
 4. release_task(task_id, message='handoff to teammate') for explicit handoff
 ```
 
+### Peeking before claiming (v0.9.1+)
+
+Pass `dry_run: true` to `claim_next_task` to see the candidate without claiming. Useful when an agent wants to inspect the next task and decide whether to take it, without leaving a phantom claim if it bails.
+
+```
+claim_next_task({ scope: { plan_id }, dry_run: true })
+// → returns { candidate, source, claim: null, dry_run: true }
+// Then claim for real:
+claim_next_task({ scope: { plan_id } })  // dry_run defaults to false
+```
+
+### Proposing subtasks for human approval (v0.9.1+)
+
+Agents can't create plan structure directly — that's the human's job. But agents *can* propose subtasks via `queue_decision` and have them materialize on approval. This preserves the "agents drive execution, humans steer structure" boundary while removing the manual follow-through tax.
+
+```
+queue_decision({
+  plan_id: '<plan>',
+  title: 'Approve adding 3 launch tasks?',
+  context: 'Found gap in launch goal — no Product Hunt subtasks exist yet',
+  smallest_input_needed: 'approve|defer|reject',
+  proposed_subtasks: [
+    { parent_id: '<phase-id>', title: 'Draft PH listing copy', node_type: 'task' },
+    { parent_id: '<phase-id>', title: 'Set up PH preview', node_type: 'task' },
+    { parent_id: '<phase-id>', title: 'Schedule launch day', node_type: 'task' }
+  ]
+})
+// On resolve_decision({ action: 'approve' }), the 3 tasks are atomically created
+// and their IDs returned in created_subtasks[]. Defer/reject does nothing.
+```
+
 ## Goal coaching
 
 When a user expresses intent — "I want to launch a feature", "we need better testing" — coach them into a structured goal before creating it.

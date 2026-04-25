@@ -58,13 +58,30 @@ const queueDecisionDefinition = {
         default: 'normal',
       },
       goal_id: { type: 'string', description: 'Optional goal this decision serves' },
+      proposed_subtasks: {
+        type: 'array',
+        description: "Tasks to materialize if the human approves. Agents propose; humans steer structure. On resolve_decision(action='approve'), these are atomically created under the given parent_id and their IDs are returned.",
+        items: {
+          type: 'object',
+          properties: {
+            parent_id: { type: 'string', description: 'Where to attach. Must be a node the agent already has access to.' },
+            title: { type: 'string' },
+            description: { type: 'string' },
+            node_type: { type: 'string', enum: ['phase', 'task', 'milestone'], default: 'task' },
+            task_mode: { type: 'string', enum: ['research', 'plan', 'implement', 'free'], default: 'free' },
+            agent_instructions: { type: 'string' },
+            acceptance_criteria: { type: 'string' },
+          },
+          required: ['parent_id', 'title'],
+        },
+      },
     },
     required: ['title', 'context', 'smallest_input_needed'],
   },
 };
 
 async function queueDecisionHandler(args, apiClient) {
-  const { plan_id, node_id, title, context, options, recommendation, smallest_input_needed, urgency, goal_id } = args;
+  const { plan_id, node_id, title, context, options, recommendation, smallest_input_needed, urgency, goal_id, proposed_subtasks } = args;
 
   let planId = plan_id;
   if (!planId && node_id) {
@@ -85,7 +102,12 @@ async function queueDecisionHandler(args, apiClient) {
     options: options || [],
     recommendation: recommendation || null,
     urgency: urgency || 'normal',
-    metadata: { smallest_input_needed, goal_id: goal_id || null, source: 'bdi.queue_decision' },
+    metadata: {
+      smallest_input_needed,
+      goal_id: goal_id || null,
+      source: 'bdi.queue_decision',
+      proposed_subtasks: Array.isArray(proposed_subtasks) ? proposed_subtasks : undefined,
+    },
   };
   if (node_id) body.node_id = node_id;
 
@@ -142,28 +164,70 @@ const resolveDecisionDefinition = {
 
 async function resolveDecisionHandler(args, apiClient) {
   const { decision_id, plan_id, action, message, selected_option } = args;
+
+  // Fetch the decision first so we can read proposed_subtasks if any.
+  let decision = null;
   try {
-    const resolved = await apiClient.axiosInstance
+    decision = await apiClient.axiosInstance
+      .get(`/plans/${plan_id}/decisions/${decision_id}`)
+      .then((r) => r.data);
+  } catch (err) {
+    // Best-effort — if fetch fails, we still try to resolve.
+  }
+
+  let resolved;
+  try {
+    resolved = await apiClient.axiosInstance
       .post(`/plans/${plan_id}/decisions/${decision_id}/resolve`, {
         resolution: action,
         message: message || null,
         selected_option: selected_option || null,
       })
       .then((r) => r.data);
-    return formatResponse({
-      as_of: asOf(),
-      decision_id,
-      plan_id,
-      status: resolved.status || action,
-      resolved_at: resolved.resolved_at || asOf(),
-      message: resolved.message || message || null,
-    });
   } catch (err) {
     return errorResponse(
       'upstream_unavailable',
       `Failed to resolve decision: ${err.response?.data?.error || err.message}`
     );
   }
+
+  // On approve, materialize any proposed_subtasks atomically (best-effort per task).
+  const created = [];
+  const createFailures = [];
+  if (action === 'approve' && decision?.metadata?.proposed_subtasks?.length) {
+    for (const proposal of decision.metadata.proposed_subtasks) {
+      try {
+        const node = await apiClient.nodes.createNode(plan_id, {
+          parent_id: proposal.parent_id,
+          node_type: proposal.node_type || 'task',
+          title: proposal.title,
+          description: proposal.description,
+          status: 'not_started',
+          task_mode: proposal.task_mode || 'free',
+          agent_instructions: proposal.agent_instructions,
+          acceptance_criteria: proposal.acceptance_criteria,
+        });
+        created.push({ id: node.id || node.node?.id, title: proposal.title, parent_id: proposal.parent_id });
+      } catch (err) {
+        createFailures.push({
+          title: proposal.title,
+          parent_id: proposal.parent_id,
+          error: err.response?.data?.error || err.message,
+        });
+      }
+    }
+  }
+
+  return formatResponse({
+    as_of: asOf(),
+    decision_id,
+    plan_id,
+    status: resolved.status || action,
+    resolved_at: resolved.resolved_at || asOf(),
+    message: resolved.message || message || null,
+    created_subtasks: created,
+    create_failures: createFailures,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -320,13 +384,18 @@ const claimNextTaskDefinition = {
       ttl_minutes: { type: 'integer', default: 30 },
       fresh: { type: 'boolean', default: false },
       context_depth: { type: 'integer', enum: [1, 2, 3, 4], default: 2 },
+      dry_run: {
+        type: 'boolean',
+        default: false,
+        description: "If true, return the candidate task without claiming. Lets the caller peek before committing. No phantom claim left behind.",
+      },
     },
     required: ['scope'],
   },
 };
 
 async function claimNextTaskHandler(args, apiClient) {
-  const { scope = {}, ttl_minutes = 30, fresh = false, context_depth = 2 } = args;
+  const { scope = {}, ttl_minutes = 30, fresh = false, context_depth = 2, dry_run = false } = args;
   const { plan_id, goal_id } = scope;
 
   let chosen = null;
@@ -376,6 +445,24 @@ async function claimNextTaskHandler(args, apiClient) {
 
   const taskPlanId = chosen.plan_id || plan_id;
   const taskId = chosen.id;
+
+  // Dry run: return candidate without claiming.
+  if (dry_run) {
+    return formatResponse({
+      as_of: asOf(),
+      candidate: {
+        id: taskId,
+        title: chosen.title,
+        status: chosen.status,
+        plan_id: taskPlanId,
+        task_mode: chosen.task_mode,
+      },
+      source,
+      claim: null,
+      dry_run: true,
+      next_action_hint: 'Call again with dry_run=false to claim, or pick a different task.',
+    });
+  }
 
   // Claim
   let claim = null;
