@@ -158,13 +158,16 @@ function updateClaudeConfig(configPath, mcpServerPath, apiUrl, token) {
     config.mcpServers = {};
   }
 
-  // Add or update planning-system server
+  // Add or update planning-system server.
+  // MCP_CLIENT_LABEL identifies this install in the Settings →
+  // Integrations dashboard's tool_calls telemetry stream.
   config.mcpServers['planning-system'] = {
     command: 'node',
     args: [path.join(mcpServerPath, 'src', 'index.js')],
     env: {
       API_URL: apiUrl,
-      USER_API_TOKEN: token
+      USER_API_TOKEN: token,
+      MCP_CLIENT_LABEL: 'Claude Desktop'
     }
   };
 

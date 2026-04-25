@@ -17,12 +17,29 @@ const getAuthScheme = (token) => {
 
 const authScheme = getAuthScheme(userApiToken);
 
+// Identify this caller in the API server's tool_calls telemetry.
+// Setup wizards (per client) should set MCP_CLIENT_LABEL to one of
+// "Claude Desktop" | "Claude Code" | "Cursor" | "ChatGPT" | "OpenClaw"
+// so the Settings → Integrations dashboard can group calls per client.
+let pkgVersion;
+try { pkgVersion = require('../package.json').version; } catch { pkgVersion = '0.0.0'; }
+const clientLabel = process.env.MCP_CLIENT_LABEL || null;
+const userAgent = clientLabel
+  ? `agent-planner-mcp/${pkgVersion} (${clientLabel})`
+  : `agent-planner-mcp/${pkgVersion}`;
+
 // Create API client instance
 const apiClient = axios.create({
   baseURL: process.env.API_URL || 'http://localhost:3000',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': userApiToken ? `${authScheme} ${userApiToken}` : undefined
+    'Authorization': userApiToken ? `${authScheme} ${userApiToken}` : undefined,
+    'User-Agent': userAgent,
+    // X-Client-Label takes precedence on the API side (see
+    // toolCallTelemetry.middleware) so MCP setup wizards can label
+    // calls precisely without polluting the User-Agent string.
+    ...(clientLabel ? { 'X-Client-Label': clientLabel } : {}),
+    'X-MCP-Client': clientLabel || 'unknown',
   }
 });
 
@@ -778,11 +795,21 @@ const dependencies = {
  */
 function createApiClient(token, options = {}) {
   const scheme = getAuthScheme(token);
+  // Telemetry headers — same shape as the default client. options.clientLabel
+  // wins over the global env var so HTTP-mode sessions can label themselves
+  // per connection (e.g. when the SSE handshake reveals the client).
+  const sessionLabel = options.clientLabel || process.env.MCP_CLIENT_LABEL || null;
+  const sessionUserAgent = sessionLabel
+    ? `agent-planner-mcp/${pkgVersion} (${sessionLabel})`
+    : `agent-planner-mcp/${pkgVersion}`;
   const client = axios.create({
     baseURL: options.apiUrl || process.env.API_URL || 'http://localhost:3000',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': token ? `${scheme} ${token}` : undefined
+      'Authorization': token ? `${scheme} ${token}` : undefined,
+      'User-Agent': sessionUserAgent,
+      ...(sessionLabel ? { 'X-Client-Label': sessionLabel } : {}),
+      'X-MCP-Client': sessionLabel || 'unknown',
     }
   });
 
