@@ -1,8 +1,9 @@
 /**
  * BDI desires — goal management.
  *
- * 2 tools: list_goals (with health rollup), update_goal (atomic, subsumes
- * link/unlink and achiever changes).
+ * 3 tools: list_goals (with health rollup), update_goal (atomic, subsumes
+ * link/unlink and achiever changes), derive_subgoal (propose a sub-goal
+ * under an existing parent; mandatory parent — top-level goals stay UI-only).
  */
 
 const { asOf, formatResponse, errorResponse, safeArray } = require('./_shared');
@@ -154,10 +155,110 @@ async function updateGoalHandler(args, apiClient) {
   return formatResponse({ as_of: asOf(), goal_id, applied_changes: applied, failures, goal });
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// derive_subgoal — propose a sub-goal under an existing parent.
+// Top-level goals stay UI-only (strategic direction is human-set).
+// ─────────────────────────────────────────────────────────────────────────
+
+const VALID_GOAL_TYPES = ['outcome', 'constraint', 'metric', 'principle'];
+const VALID_STATUSES = ['draft', 'active', 'achieved', 'paused', 'abandoned', 'archived'];
+
+const deriveSubgoalDefinition = {
+  name: 'derive_subgoal',
+  description:
+    "Propose a sub-goal under an existing parent goal. parent_goal_id is " +
+    "mandatory — agents cannot create top-level goals (strategic direction is " +
+    "human-set). Defaults to status='active' for human-directed creation; pass " +
+    "status='draft' for autonomous loops so a human can review before promotion. " +
+    "Drafts surface in the dashboard pending queue.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      parent_goal_id: {
+        type: 'string',
+        description: "Required. The parent goal this sub-goal contributes to.",
+      },
+      title: { type: 'string' },
+      description: { type: 'string', description: "Optional extended description, appended after rationale." },
+      rationale: {
+        type: 'string',
+        description: "Why this sub-goal is needed to achieve the parent. Becomes the description; surfaces in human review.",
+      },
+      type: {
+        type: 'string',
+        enum: VALID_GOAL_TYPES,
+        default: 'outcome',
+      },
+      status: {
+        type: 'string',
+        enum: VALID_STATUSES,
+        default: 'active',
+        description: "Default 'active' for human-directed creation. Pass 'draft' when acting autonomously without explicit user direction.",
+      },
+      success_criteria: {
+        type: 'array',
+        items: { type: 'string' },
+        description: "Concrete, observable conditions that mark this sub-goal achieved.",
+      },
+      priority: { type: 'integer', default: 0 },
+    },
+    required: ['parent_goal_id', 'title', 'rationale'],
+  },
+};
+
+async function deriveSubgoalHandler(args, apiClient) {
+  const { parent_goal_id, title, description, rationale, type = 'outcome', status = 'active', success_criteria, priority } = args;
+
+  // Verify parent exists and inherit organization scope.
+  let parent;
+  try {
+    parent = await apiClient.goals.get(parent_goal_id);
+  } catch (err) {
+    return errorResponse('not_found', `Parent goal ${parent_goal_id} not found or not accessible: ${err.message}`);
+  }
+
+  // Compose description: rationale is primary; optional description appended.
+  const composedDescription = description
+    ? `${rationale}\n\n${description}`
+    : rationale;
+
+  const payload = {
+    title,
+    description: composedDescription,
+    type,
+    status,
+    parentGoalId: parent_goal_id,
+    organizationId: parent.organization_id || parent.organizationId || undefined,
+  };
+  if (success_criteria) payload.successCriteria = { criteria: success_criteria };
+  if (typeof priority === 'number') payload.priority = priority;
+
+  let goal;
+  try {
+    goal = await apiClient.goals.create(payload);
+  } catch (err) {
+    const upstream = err.response?.data?.error || err.message;
+    return errorResponse('create_failed', `Failed to create sub-goal: ${upstream}`);
+  }
+
+  return formatResponse({
+    as_of: asOf(),
+    goal_id: goal.id,
+    parent_goal_id,
+    title: goal.title,
+    status: goal.status,
+    is_draft: goal.status === 'draft',
+    next_step: goal.status === 'draft'
+      ? "Sub-goal created as draft. It will surface in the dashboard pending queue for human review. Promote via update_goal({status: 'active'}) once approved."
+      : "Sub-goal active. Link plans to it via update_goal({add_linked_plans: [...]}).",
+  });
+}
+
 module.exports = {
-  definitions: [listGoalsDefinition, updateGoalDefinition],
+  definitions: [listGoalsDefinition, updateGoalDefinition, deriveSubgoalDefinition],
   handlers: {
     list_goals: listGoalsHandler,
     update_goal: updateGoalHandler,
+    derive_subgoal: deriveSubgoalHandler,
   },
 };

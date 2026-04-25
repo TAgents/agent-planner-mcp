@@ -599,6 +599,460 @@ async function addLearningHandler(args, apiClient) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// form_intention — create plan + initial tree atomically (v1.0).
+// ─────────────────────────────────────────────────────────────────────────
+
+const VALID_NODE_TYPES = ['phase', 'task', 'milestone'];
+const VALID_TASK_MODES = ['free', 'research', 'plan', 'implement'];
+
+function validateTreeShape(tree, depth = 0) {
+  if (!Array.isArray(tree)) {
+    return 'tree must be an array';
+  }
+  for (const node of tree) {
+    if (!node || typeof node !== 'object') return 'tree node must be an object';
+    if (!node.title) return 'tree node missing title';
+    if (node.node_type && !VALID_NODE_TYPES.includes(node.node_type)) {
+      return `invalid node_type "${node.node_type}" — must be one of ${VALID_NODE_TYPES.join(', ')}`;
+    }
+    if (node.task_mode && !VALID_TASK_MODES.includes(node.task_mode)) {
+      return `invalid task_mode "${node.task_mode}"`;
+    }
+    if (node.children) {
+      const err = validateTreeShape(node.children, depth + 1);
+      if (err) return err;
+    }
+  }
+  return null;
+}
+
+const formIntentionDefinition = {
+  name: 'form_intention',
+  description:
+    "Create a plan that achieves a goal, including an initial phase/task " +
+    "tree, in one call. Defaults to status='active' for human-directed " +
+    "creation; pass status='draft' for autonomous loops so a human can " +
+    "review before promotion. Drafts surface in the dashboard pending " +
+    "queue and auto-promote to active when work begins on any node.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      goal_id: { type: 'string', description: "Goal this plan serves." },
+      title: { type: 'string' },
+      description: { type: 'string' },
+      rationale: { type: 'string', description: "Why this plan. Surfaces in human review when status=draft." },
+      status: {
+        type: 'string',
+        enum: ['draft', 'active'],
+        default: 'active',
+      },
+      visibility: {
+        type: 'string',
+        enum: ['private', 'unlisted', 'public'],
+        default: 'private',
+      },
+      tree: {
+        type: 'array',
+        description: "Recursive tree of nodes (phases, tasks, milestones). Children nest under parents via the 'children' array.",
+        items: {
+          type: 'object',
+          properties: {
+            node_type: { type: 'string', enum: VALID_NODE_TYPES, default: 'task' },
+            title: { type: 'string' },
+            description: { type: 'string' },
+            task_mode: { type: 'string', enum: VALID_TASK_MODES, default: 'free' },
+            agent_instructions: { type: 'string' },
+            children: { type: 'array' },
+          },
+          required: ['title'],
+        },
+      },
+    },
+    required: ['goal_id', 'title', 'rationale'],
+  },
+};
+
+async function createSubtree(apiClient, planId, parentId, children, results) {
+  for (const child of children || []) {
+    let createdNode;
+    try {
+      const payload = {
+        node_type: child.node_type || 'task',
+        title: child.title,
+        description: child.description || '',
+        task_mode: child.task_mode || 'free',
+      };
+      if (parentId) payload.parent_id = parentId;
+      if (child.agent_instructions) payload.agent_instructions = child.agent_instructions;
+
+      const resp = await apiClient.nodes.createNode(planId, payload);
+      // createNode returns { result, created } — unwrap.
+      createdNode = resp.result || resp;
+      results.push({ id: createdNode.id, title: createdNode.title, node_type: createdNode.node_type });
+    } catch (err) {
+      results.push({ title: child.title, error: err.response?.data?.error || err.message });
+      continue;
+    }
+
+    if (child.children?.length && createdNode?.id) {
+      await createSubtree(apiClient, planId, createdNode.id, child.children, results);
+    }
+  }
+}
+
+async function formIntentionHandler(args, apiClient) {
+  const { goal_id, title, description, rationale, status = 'active', visibility = 'private', tree = [] } = args;
+
+  // Validate goal exists.
+  let goal;
+  try {
+    goal = await apiClient.goals.get(goal_id);
+  } catch (err) {
+    return errorResponse('not_found', `Goal ${goal_id} not found or not accessible: ${err.message}`);
+  }
+
+  // Validate tree shape upfront (atomic-ish — fail before partial creation).
+  const treeError = validateTreeShape(tree);
+  if (treeError) {
+    return errorResponse('tree_shape_invalid', treeError);
+  }
+
+  // Compose plan description (rationale + optional description).
+  const composedDescription = description ? `${rationale}\n\n${description}` : rationale;
+
+  // 1. Create plan.
+  let plan;
+  try {
+    plan = await apiClient.plans.createPlan({
+      title,
+      description: composedDescription,
+      status,
+      visibility,
+    });
+  } catch (err) {
+    return errorResponse('create_failed', `Failed to create plan: ${err.response?.data?.error || err.message}`);
+  }
+
+  // 2. Link plan to goal (best-effort).
+  try {
+    await apiClient.goals.linkPlan(goal_id, plan.id);
+  } catch (err) {
+    // Non-fatal — plan exists, link can be retried by user.
+  }
+
+  // 3. Create tree (top-level children parent to root via omitted parent_id).
+  const nodeResults = [];
+  await createSubtree(apiClient, plan.id, null, tree, nodeResults);
+
+  return formatResponse({
+    as_of: asOf(),
+    plan_id: plan.id,
+    goal_id,
+    status: plan.status,
+    is_draft: plan.status === 'draft',
+    nodes_created: nodeResults.filter((n) => n.id).length,
+    node_failures: nodeResults.filter((n) => n.error),
+    nodes: nodeResults,
+    next_step: plan.status === 'draft'
+      ? "Plan created as draft. Will surface in dashboard pending for human review. Auto-promotes to active when first task moves to in_progress."
+      : "Plan active. Claim a task with claim_next_task({plan_id}) to begin work.",
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// extend_intention — add children under an existing parent (v1.0).
+// Lightweight — does not go through the decision queue.
+// ─────────────────────────────────────────────────────────────────────────
+
+const extendIntentionDefinition = {
+  name: 'extend_intention',
+  description:
+    "Add children under an existing phase or task. Use when an agent has " +
+    "implicit authority to decompose work (e.g., a parent task they have " +
+    "claimed). For high-stakes structural proposals, use queue_decision " +
+    "with proposed_subtasks instead. Defaults to status='active'.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      parent_id: { type: 'string', description: "Phase or task to add children under." },
+      plan_id: { type: 'string', description: "Plan that owns the parent (auto-resolved if omitted)." },
+      rationale: { type: 'string', description: "Why these children. Stored in metadata for audit." },
+      children: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            node_type: { type: 'string', enum: VALID_NODE_TYPES, default: 'task' },
+            title: { type: 'string' },
+            description: { type: 'string' },
+            task_mode: { type: 'string', enum: VALID_TASK_MODES, default: 'free' },
+            agent_instructions: { type: 'string' },
+            children: { type: 'array' },
+          },
+          required: ['title'],
+        },
+      },
+    },
+    required: ['parent_id', 'rationale', 'children'],
+  },
+};
+
+async function extendIntentionHandler(args, apiClient) {
+  const { parent_id, rationale, children = [] } = args;
+  let { plan_id } = args;
+
+  // Resolve plan_id from parent if not provided.
+  if (!plan_id) {
+    try {
+      const parent = await apiClient.axiosInstance.get(`/nodes/${parent_id}`).then((r) => r.data);
+      plan_id = parent.plan_id || parent.planId;
+    } catch (err) {
+      return errorResponse('not_found', `Could not resolve plan_id from parent ${parent_id}: ${err.message}`);
+    }
+  }
+
+  const treeError = validateTreeShape(children);
+  if (treeError) {
+    return errorResponse('tree_shape_invalid', treeError);
+  }
+
+  const nodeResults = [];
+  await createSubtree(apiClient, plan_id, parent_id, children, nodeResults);
+
+  return formatResponse({
+    as_of: asOf(),
+    plan_id,
+    parent_id,
+    rationale,
+    nodes_created: nodeResults.filter((n) => n.id).length,
+    node_failures: nodeResults.filter((n) => n.error),
+    nodes: nodeResults,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// propose_research_chain — RPI shortcut (v1.0).
+// Creates Research → Plan → Implement under parent with two blocking edges.
+// ─────────────────────────────────────────────────────────────────────────
+
+const proposeResearchChainDefinition = {
+  name: 'propose_research_chain',
+  description:
+    "Create a Research → Plan → Implement triple under an existing parent " +
+    "task or phase. The Research task feeds Plan; Plan feeds Implement " +
+    "(via 'blocks' dependency edges). Use when tackling work with " +
+    "significant unknowns. Defaults to status='active'.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      parent_id: { type: 'string', description: "Parent task or phase the chain attaches to." },
+      plan_id: { type: 'string', description: "Plan that owns the parent (auto-resolved if omitted)." },
+      research_question: { type: 'string', description: "What the Research task investigates." },
+      implementation_target: { type: 'string', description: "What the Implement task ultimately produces." },
+      rationale: { type: 'string', description: "Why an RPI chain is appropriate here." },
+    },
+    required: ['parent_id', 'research_question', 'implementation_target', 'rationale'],
+  },
+};
+
+async function proposeResearchChainHandler(args, apiClient) {
+  const { parent_id, research_question, implementation_target, rationale } = args;
+  let { plan_id } = args;
+
+  if (!plan_id) {
+    try {
+      const parent = await apiClient.axiosInstance.get(`/nodes/${parent_id}`).then((r) => r.data);
+      plan_id = parent.plan_id || parent.planId;
+    } catch (err) {
+      return errorResponse('not_found', `Could not resolve plan_id from parent ${parent_id}: ${err.message}`);
+    }
+  }
+
+  const created = {};
+  const failures = [];
+
+  // 1. Create the three tasks.
+  for (const [key, spec] of [
+    ['research', { title: `Research: ${research_question}`, description: research_question, task_mode: 'research' }],
+    ['plan', { title: `Plan: ${implementation_target}`, description: `Plan implementation based on research findings`, task_mode: 'plan' }],
+    ['implement', { title: `Implement: ${implementation_target}`, description: implementation_target, task_mode: 'implement' }],
+  ]) {
+    try {
+      const resp = await apiClient.nodes.createNode(plan_id, {
+        node_type: 'task',
+        title: spec.title,
+        description: spec.description,
+        task_mode: spec.task_mode,
+        parent_id,
+      });
+      created[key] = resp.result || resp;
+    } catch (err) {
+      failures.push({ step: `create_${key}`, error: err.response?.data?.error || err.message });
+    }
+  }
+
+  if (failures.length) {
+    return formatResponse({
+      as_of: asOf(),
+      plan_id,
+      parent_id,
+      partial: true,
+      created: Object.fromEntries(Object.entries(created).map(([k, v]) => [k, { id: v.id, title: v.title }])),
+      failures,
+    });
+  }
+
+  // 2. Create the two blocking edges: research blocks plan, plan blocks implement.
+  const edges = [];
+  for (const [from, to] of [
+    [created.research.id, created.plan.id],
+    [created.plan.id, created.implement.id],
+  ]) {
+    try {
+      await apiClient.axiosInstance.post('/dependencies', {
+        source_node_id: from,
+        target_node_id: to,
+        dependency_type: 'blocks',
+      });
+      edges.push({ from, to, relation: 'blocks' });
+    } catch (err) {
+      failures.push({ step: 'create_edge', error: err.response?.data?.error || err.message, from, to });
+    }
+  }
+
+  return formatResponse({
+    as_of: asOf(),
+    plan_id,
+    parent_id,
+    rationale,
+    research: { id: created.research.id, title: created.research.title },
+    plan: { id: created.plan.id, title: created.plan.title },
+    implement: { id: created.implement.id, title: created.implement.title },
+    edges,
+    failures,
+    next_step: "Claim the Research task with claim_next_task({plan_id}) to begin investigation.",
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// link_intentions — create dependency edge between two existing tasks (v1.0).
+// Cycle detection happens server-side; we surface the 409 cleanly.
+// ─────────────────────────────────────────────────────────────────────────
+
+const VALID_RELATIONS = ['blocks', 'requires', 'relates_to'];
+
+const linkIntentionsDefinition = {
+  name: 'link_intentions',
+  description:
+    "Create a dependency edge between two existing tasks. Use to express " +
+    "discovered ordering constraints (e.g., agent realizes task B requires " +
+    "task A's output). Server rejects cycles. Both tasks must be in the " +
+    "same plan.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      from_task_id: { type: 'string' },
+      to_task_id: { type: 'string' },
+      relation: { type: 'string', enum: VALID_RELATIONS, default: 'blocks' },
+      rationale: { type: 'string', description: "Why this link. Stored in dependency metadata." },
+    },
+    required: ['from_task_id', 'to_task_id', 'rationale'],
+  },
+};
+
+async function linkIntentionsHandler(args, apiClient) {
+  const { from_task_id, to_task_id, relation = 'blocks', rationale } = args;
+
+  if (from_task_id === to_task_id) {
+    return errorResponse('invalid_argument', 'from_task_id and to_task_id must differ');
+  }
+
+  // Resolve plan_id from the source task; validate target is in the same plan.
+  let planId, fromPlan, toPlan;
+  try {
+    const fromNode = await apiClient.axiosInstance.get(`/nodes/${from_task_id}`).then((r) => r.data);
+    fromPlan = fromNode.plan_id || fromNode.planId;
+    planId = fromPlan;
+  } catch (err) {
+    return errorResponse('not_found', `from_task ${from_task_id} not found: ${err.message}`);
+  }
+  try {
+    const toNode = await apiClient.axiosInstance.get(`/nodes/${to_task_id}`).then((r) => r.data);
+    toPlan = toNode.plan_id || toNode.planId;
+  } catch (err) {
+    return errorResponse('not_found', `to_task ${to_task_id} not found: ${err.message}`);
+  }
+
+  if (fromPlan !== toPlan) {
+    return errorResponse('cross_plan_unsupported', `Both tasks must be in the same plan (from: ${fromPlan}, to: ${toPlan}). Cross-plan links require a separate API.`);
+  }
+
+  try {
+    const dep = await apiClient.axiosInstance.post(`/plans/${planId}/dependencies`, {
+      source_node_id: from_task_id,
+      target_node_id: to_task_id,
+      dependency_type: relation,
+      metadata: { rationale },
+    }).then((r) => r.data);
+
+    return formatResponse({
+      as_of: asOf(),
+      dependency_id: dep.id,
+      plan_id: planId,
+      from_task_id,
+      to_task_id,
+      relation,
+    });
+  } catch (err) {
+    const status = err.response?.status;
+    const upstream = err.response?.data?.error || err.message;
+    if (status === 409) {
+      return errorResponse('cycle_detected', `Edge rejected — would create a cycle: ${upstream}`);
+    }
+    return errorResponse('create_failed', `Failed to create dependency: ${upstream}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// unlink_intentions — remove a dependency edge (v1.0).
+// ─────────────────────────────────────────────────────────────────────────
+
+const unlinkIntentionsDefinition = {
+  name: 'unlink_intentions',
+  description: "Remove a dependency edge by id.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      dependency_id: { type: 'string' },
+      plan_id: { type: 'string', description: "Plan that owns the dependency. Required for the route." },
+      reason: { type: 'string', description: "Why removed. Logged for audit." },
+    },
+    required: ['dependency_id', 'plan_id'],
+  },
+};
+
+async function unlinkIntentionsHandler(args, apiClient) {
+  const { dependency_id, plan_id, reason } = args;
+
+  try {
+    await apiClient.axiosInstance.delete(`/plans/${plan_id}/dependencies/${dependency_id}`);
+    return formatResponse({
+      as_of: asOf(),
+      dependency_id,
+      plan_id,
+      reason: reason || null,
+      removed: true,
+    });
+  } catch (err) {
+    const upstream = err.response?.data?.error || err.message;
+    if (err.response?.status === 404) {
+      return errorResponse('not_found', `Dependency ${dependency_id} not found in plan ${plan_id}`);
+    }
+    return errorResponse('delete_failed', `Failed to remove dependency: ${upstream}`);
+  }
+}
+
 module.exports = {
   definitions: [
     queueDecisionDefinition,
@@ -607,6 +1061,11 @@ module.exports = {
     claimNextTaskDefinition,
     releaseTaskDefinition,
     addLearningDefinition,
+    formIntentionDefinition,
+    extendIntentionDefinition,
+    proposeResearchChainDefinition,
+    linkIntentionsDefinition,
+    unlinkIntentionsDefinition,
   ],
   handlers: {
     queue_decision: queueDecisionHandler,
@@ -615,5 +1074,10 @@ module.exports = {
     claim_next_task: claimNextTaskHandler,
     release_task: releaseTaskHandler,
     add_learning: addLearningHandler,
+    form_intention: formIntentionHandler,
+    extend_intention: extendIntentionHandler,
+    propose_research_chain: proposeResearchChainHandler,
+    link_intentions: linkIntentionsHandler,
+    unlink_intentions: unlinkIntentionsHandler,
   },
 };
