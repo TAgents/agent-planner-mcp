@@ -11,6 +11,7 @@
 
 const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const defaultApiClient = require('./api-client');
+const { bdiToolDefinitions, bdiToolHandler, bdiToolNames } = require('./tools/bdi');
 
 const APP_URL = (process.env.APP_URL || 'https://agentplanner.io').replace(/\/$/, '');
 function buildPlanUrl(planId) { return `${APP_URL}/app/plans/${planId}`; }
@@ -1135,24 +1136,35 @@ function setupTools(server, apiClientOverride) {
             }
           }
         },
+        // ========================================
+        // BDI v0.9.0 — Beliefs / Desires / Intentions
+        // ========================================
+        ...bdiToolDefinitions,
       ]
     };
   });
-  
+
   // Handler for calling tools
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    
+
     // Only log in development mode
     if (process.env.NODE_ENV === 'development') {
       console.error(`Calling tool: ${name} with arguments:`, args);
     }
-    
+
     try {
+      // ========================================
+      // BDI v0.9.0 dispatch — runs before legacy tools
+      // ========================================
+      if (bdiToolNames.has(name)) {
+        return await bdiToolHandler(name, args, apiClient);
+      }
+
       // ========================================
       // QUICK ACTIONS IMPLEMENTATIONS
       // ========================================
-      
+
       if (name === "quick_plan") {
         const { title, description, tasks, goal_id, organization_id } = args;
         
