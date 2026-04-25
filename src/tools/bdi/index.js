@@ -9,16 +9,22 @@
  */
 
 const beliefs = require('./beliefs');
+const desires = require('./desires');
 const intentions = require('./intentions');
+const utility = require('./utility');
 
 const definitions = [
   ...beliefs.definitions,
+  ...desires.definitions,
   ...intentions.definitions,
+  ...utility.definitions,
 ];
 
 const handlers = {
   ...beliefs.handlers,
+  ...desires.handlers,
   ...intentions.handlers,
+  ...utility.handlers,
 };
 
 const names = new Set(definitions.map((t) => t.name));

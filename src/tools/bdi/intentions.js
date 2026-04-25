@@ -297,11 +297,236 @@ async function updateTaskHandler(args, apiClient) {
   return formatResponse(result);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// claim_next_task — bundle suggest + claim + load context.
+// ─────────────────────────────────────────────────────────────────────────
+
+const claimNextTaskDefinition = {
+  name: 'claim_next_task',
+  description:
+    "Pick the next task in scope, claim it, and return its context — all in " +
+    "one call. Resolution order: (1) resume any in_progress task, (2) suggest_next_tasks, " +
+    "(3) my_tasks fallback. Pass fresh:true to skip the resume step.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      scope: {
+        type: 'object',
+        properties: {
+          plan_id: { type: 'string' },
+          goal_id: { type: 'string' },
+        },
+      },
+      ttl_minutes: { type: 'integer', default: 30 },
+      fresh: { type: 'boolean', default: false },
+      context_depth: { type: 'integer', enum: [1, 2, 3, 4], default: 2 },
+    },
+    required: ['scope'],
+  },
+};
+
+async function claimNextTaskHandler(args, apiClient) {
+  const { scope = {}, ttl_minutes = 30, fresh = false, context_depth = 2 } = args;
+  const { plan_id, goal_id } = scope;
+
+  let chosen = null;
+  let source = null;
+
+  // 1. Resume in-progress (unless fresh)
+  if (!fresh) {
+    try {
+      const myTasks = await apiClient.users.getMyTasks({ plan_id });
+      const tasks = (myTasks.tasks || myTasks || []).filter((t) => t.status === 'in_progress');
+      if (plan_id) tasks.filter((t) => t.plan_id === plan_id);
+      if (tasks[0]) {
+        chosen = tasks[0];
+        source = 'resume_in_progress';
+      }
+    } catch {}
+  }
+
+  // 2. suggest_next_tasks
+  if (!chosen && plan_id) {
+    try {
+      const params = new URLSearchParams({ plan_id, limit: '1' });
+      const r = await apiClient.axiosInstance.get(`/plans/${plan_id}/suggest-next-tasks?${params}`);
+      const suggested = (r.data?.tasks || r.data || [])[0];
+      if (suggested) {
+        chosen = suggested;
+        source = 'suggest_next_tasks';
+      }
+    } catch {}
+  }
+
+  // 3. my_tasks fallback (first not_started)
+  if (!chosen) {
+    try {
+      const myTasks = await apiClient.users.getMyTasks({ plan_id });
+      const tasks = (myTasks.tasks || myTasks || []).filter((t) => t.status === 'not_started');
+      if (tasks[0]) {
+        chosen = tasks[0];
+        source = 'my_tasks_fallback';
+      }
+    } catch {}
+  }
+
+  if (!chosen) {
+    return errorResponse('not_found', 'No task available in scope');
+  }
+
+  const taskPlanId = chosen.plan_id || plan_id;
+  const taskId = chosen.id;
+
+  // Claim
+  let claim = null;
+  try {
+    claim = await apiClient.nodes.claimTask(taskPlanId, taskId, 'mcp-agent', ttl_minutes);
+  } catch (err) {
+    return errorResponse('claim_collision', `Could not claim task ${taskId}: ${err.response?.data?.error || err.message}`);
+  }
+
+  // Load context
+  let context = null;
+  try {
+    const params = new URLSearchParams({
+      node_id: taskId,
+      depth: String(context_depth),
+      log_limit: '10',
+      include_research: 'true',
+    });
+    const ctxResp = await apiClient.axiosInstance.get(`/context/progressive?${params}`);
+    context = ctxResp.data;
+  } catch (err) {
+    // Best-effort: still return claim with the bare task object
+  }
+
+  return formatResponse({
+    as_of: asOf(),
+    task: context || chosen,
+    plan_id: taskPlanId,
+    source,
+    claim: {
+      claimed_at: claim?.claimed_at || asOf(),
+      expires_at: claim?.expires_at,
+      ttl_minutes,
+    },
+    next_action_hint: chosen.task_mode === 'implement'
+      ? 'Task is implement mode — research and plan outputs are included in context if available'
+      : 'Task ready to start — call update_task with status=in_progress when work begins',
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// release_task — explicit handoff.
+// ─────────────────────────────────────────────────────────────────────────
+
+const releaseTaskDefinition = {
+  name: 'release_task',
+  description: 'Release a claimed task without changing status. Use for explicit handoff or abandonment.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      task_id: { type: 'string' },
+      plan_id: { type: 'string', description: 'Auto-resolved from task if omitted' },
+      message: { type: 'string', description: 'Optional log entry on release' },
+    },
+    required: ['task_id'],
+  },
+};
+
+async function releaseTaskHandler(args, apiClient) {
+  const { task_id, message } = args;
+  let planId = args.plan_id;
+  if (!planId) {
+    try {
+      const node = await apiClient.axiosInstance.get(`/nodes/${task_id}`).then((r) => r.data);
+      planId = node.plan_id || node.planId;
+    } catch (err) {
+      return errorResponse('not_found', `Could not resolve plan_id from task ${task_id}: ${err.message}`);
+    }
+  }
+  try {
+    await apiClient.nodes.releaseTask(planId, task_id, 'mcp-agent');
+  } catch (err) {
+    return errorResponse('upstream_unavailable', `release failed: ${err.message}`);
+  }
+  let logId = null;
+  if (message) {
+    try {
+      const log = await apiClient.logs.addLog(planId, task_id, { content: message, log_type: 'progress' });
+      logId = log?.id || log?.log?.id;
+    } catch {}
+  }
+  return formatResponse({ as_of: asOf(), task_id, plan_id: planId, released: true, log_id: logId });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// add_learning — knowledge graph write.
+// ─────────────────────────────────────────────────────────────────────────
+
+const addLearningDefinition = {
+  name: 'add_learning',
+  description:
+    "Record a knowledge episode. Use after research, on decisions, or when discovering " +
+    "important context. Graphiti extracts entities/relationships automatically. " +
+    "Surfaces coherence_warnings if the new content contradicts existing facts.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      content: { type: 'string' },
+      scope: {
+        type: 'object',
+        properties: { plan_id: { type: 'string' }, goal_id: { type: 'string' }, node_id: { type: 'string' } },
+      },
+      entry_type: {
+        type: 'string',
+        enum: ['fact', 'decision', 'pattern', 'constraint', 'technique', 'learning'],
+        default: 'fact',
+      },
+      source_description: { type: 'string' },
+    },
+    required: ['content'],
+  },
+};
+
+async function addLearningHandler(args, apiClient) {
+  const { content, scope = {}, entry_type = 'fact', source_description } = args;
+  try {
+    const result = await apiClient.graphiti.addEpisode({
+      content,
+      name: content.slice(0, 80),
+      source: 'text',
+      source_description: source_description || 'BDI add_learning',
+      plan_id: scope.plan_id,
+      node_id: scope.node_id,
+      entity_type: entry_type,
+    });
+    return formatResponse({
+      as_of: asOf(),
+      episode_id: result.episode?.uuid || result.uuid || null,
+      coherence_warnings: result.coherence_warnings || [],
+      message: result.message || 'Knowledge recorded',
+    });
+  } catch (err) {
+    return errorResponse('upstream_unavailable', `add_learning failed: ${err.response?.data?.error || err.message}`);
+  }
+}
+
 module.exports = {
-  definitions: [queueDecisionDefinition, resolveDecisionDefinition, updateTaskDefinition],
+  definitions: [
+    queueDecisionDefinition,
+    resolveDecisionDefinition,
+    updateTaskDefinition,
+    claimNextTaskDefinition,
+    releaseTaskDefinition,
+    addLearningDefinition,
+  ],
   handlers: {
     queue_decision: queueDecisionHandler,
     resolve_decision: resolveDecisionHandler,
     update_task: updateTaskHandler,
+    claim_next_task: claimNextTaskHandler,
+    release_task: releaseTaskHandler,
+    add_learning: addLearningHandler,
   },
 };
