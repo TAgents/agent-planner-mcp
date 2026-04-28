@@ -755,6 +755,15 @@ const users = {
   },
 };
 
+// ─── Agent Loop facade ────────────────────────────────────────
+const agentLoop = {
+  briefing: async (params = {}) => (await apiClient.get('/agent/briefing', { params })).data,
+  startWorkSession: async (data = {}) => (await apiClient.post('/agent/work-sessions', data)).data,
+  completeWorkSession: async (sessionId, data = {}) => (await apiClient.post(`/agent/work-sessions/${sessionId}/complete`, data)).data,
+  blockWorkSession: async (sessionId, data = {}) => (await apiClient.post(`/agent/work-sessions/${sessionId}/block`, data)).data,
+  createIntention: async (data = {}) => (await apiClient.post('/agent/intentions', data)).data,
+};
+
 // ─── Dependencies (cross-plan & external) ─────────────────────
 const dependencies = {
   /**
@@ -972,6 +981,13 @@ function createApiClient(token, options = {}) {
         return (await client.get(`/users/my-tasks${qs}`)).data;
       },
     },
+    agentLoop: {
+      briefing: async (params = {}) => (await client.get('/agent/briefing', { params })).data,
+      startWorkSession: async (data = {}) => (await client.post('/agent/work-sessions', data)).data,
+      completeWorkSession: async (sessionId, data = {}) => (await client.post(`/agent/work-sessions/${sessionId}/complete`, data)).data,
+      blockWorkSession: async (sessionId, data = {}) => (await client.post(`/agent/work-sessions/${sessionId}/block`, data)).data,
+      createIntention: async (data = {}) => (await client.post('/agent/intentions', data)).data,
+    },
     axiosInstance: client,
   };
 }
@@ -1002,6 +1018,7 @@ module.exports = {
   dependencies,
   coherence,
   users,
+  agentLoop,
   axiosInstance,  // Export for direct API calls
   createApiClient  // Factory for per-session clients (HTTP mode)
 };

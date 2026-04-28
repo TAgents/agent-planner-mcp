@@ -123,6 +123,28 @@ Beyond title, description, agent_instructions, and acceptance criteria, the gene
 
 The CLI is intentionally thin: it covers the read context + writeback loop and nothing else. For decomposition, dependency creation, knowledge graph queries, RPI chains, coherence runs, and goal management, use the MCP server (or the API directly).
 
+## Agent Loop Facade
+
+AgentPlanner API now exposes a narrow `/agent/*` facade for the main autonomous loop. MCP uses this facade when available and falls back to older domain endpoints for self-hosted older APIs.
+
+Primary mappings:
+
+| MCP tool | Preferred API endpoint |
+|---|---|
+| `briefing` | `GET /agent/briefing` |
+| `claim_next_task` | `POST /agent/work-sessions` |
+| `update_task` with `session_id` + `completed` | `POST /agent/work-sessions/:id/complete` |
+| `update_task` with `session_id` + `blocked` | `POST /agent/work-sessions/:id/block` |
+| `form_intention` | `POST /agent/intentions` when available, with domain-endpoint fallback |
+
+Validation:
+
+```bash
+npm run validate:mcp-loop
+```
+
+This checks that the MCP tools route through the facade for briefing, task claim/start, and session completion/blocking.
+
 
 ### Claude Desktop
 

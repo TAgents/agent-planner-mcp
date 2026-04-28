@@ -30,6 +30,20 @@ const briefingDefinition = {
 };
 
 async function briefingHandler(args, apiClient) {
+  try {
+    const response = await apiClient.axiosInstance.get('/agent/briefing', {
+      params: {
+        scope: args.scope,
+        goal_id: args.goal_id,
+        plan_id: args.plan_id,
+        recent_window_hours: args.recent_window_hours,
+      },
+    });
+    return formatResponse(response.data);
+  } catch {
+    // Fall back to the pre-facade fan-out for self-hosted older APIs.
+  }
+
   const recentHours = typeof args.recent_window_hours === 'number' ? args.recent_window_hours : 24;
   const recentSinceMs = Date.now() - recentHours * 3600 * 1000;
 

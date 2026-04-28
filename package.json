@@ -12,6 +12,7 @@
     "dev": "nodemon src/index.js",
     "dev:http": "MCP_TRANSPORT=http nodemon src/index.js",
     "test": "jest",
+    "validate:mcp-loop": "jest __tests__/agent-loop-facade.test.js --runInBand",
     "test:tools": "node test-tools.js",
     "setup": "node src/setup.js",
     "setup-claude-code": "node src/setup-claude-code.js",

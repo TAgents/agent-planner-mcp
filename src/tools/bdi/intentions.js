@@ -281,14 +281,36 @@ const updateTaskDefinition = {
         type: 'string',
         description: 'Optional: also write a knowledge episode (recommended on completion)',
       },
+      session_id: {
+        type: 'string',
+        description: 'Optional work-session id returned by claim_next_task. Uses the agent-loop completion/block endpoint when status is completed or blocked.',
+      },
+      decision: {
+        type: 'object',
+        description: 'Optional decision to queue when blocking a session through the agent-loop endpoint.',
+      },
     },
     required: ['task_id'],
   },
 };
 
 async function updateTaskHandler(args, apiClient) {
-  const { task_id, status, log_message, add_learning, release_claim } = args;
+  const { task_id, status, log_message, add_learning, release_claim, session_id, decision } = args;
   let planId = args.plan_id;
+
+  if (session_id && (status === 'completed' || status === 'blocked')) {
+    try {
+      const path = status === 'blocked' ? 'block' : 'complete';
+      const response = await apiClient.axiosInstance.post(`/agent/work-sessions/${session_id}/${path}`, {
+        summary: log_message,
+        learning: add_learning ? { content: add_learning } : undefined,
+        decision,
+      });
+      return formatResponse(response.data);
+    } catch {
+      // Fall back to legacy fan-out for older APIs or if the session was not found.
+    }
+  }
 
   // Resolve plan_id from task if not provided.
   if (!planId) {
@@ -404,6 +426,21 @@ const claimNextTaskDefinition = {
 async function claimNextTaskHandler(args, apiClient) {
   const { scope = {}, ttl_minutes = 30, fresh = false, context_depth = 2, dry_run = false } = args;
   const { plan_id, goal_id } = scope;
+
+  try {
+    const response = await apiClient.axiosInstance.post('/agent/work-sessions', {
+      plan_id,
+      goal_id,
+      ttl_minutes,
+      fresh,
+      dry_run,
+      depth: context_depth,
+      agent_id: 'mcp-agent',
+    });
+    return formatResponse(response.data);
+  } catch {
+    // Fall back to the pre-facade fan-out for self-hosted older APIs.
+  }
 
   let chosen = null;
   let source = null;
@@ -710,6 +747,37 @@ async function createSubtree(apiClient, planId, parentId, children, results) {
 
 async function formIntentionHandler(args, apiClient) {
   const { goal_id, title, description, rationale, status = 'active', visibility = 'private', tree = [] } = args;
+
+  if (apiClient.agentLoop?.createIntention) {
+    const treeError = validateTreeShape(tree);
+    if (treeError) {
+      return errorResponse('tree_shape_invalid', treeError);
+    }
+    try {
+      const result = await apiClient.agentLoop.createIntention({
+        goal_id,
+        title,
+        description,
+        rationale,
+        status,
+        visibility,
+        tree,
+      });
+      return formatResponse({
+        ...result,
+        plan_id: result.plan?.id || result.plan_id,
+        goal_id,
+        status: result.plan?.status || status,
+        is_draft: (result.plan?.status || status) === 'draft',
+        nodes_created: Array.isArray(result.tree) ? result.tree.length : undefined,
+        next_step: (result.plan?.status || status) === 'draft'
+          ? "Plan created as draft. Will surface in dashboard pending for human review. Auto-promotes to active when first task moves to in_progress."
+          : "Plan active. Claim a task with claim_next_task({plan_id}) to begin work.",
+      });
+    } catch {
+      // Fall through to the legacy multi-call path for older/self-hosted APIs.
+    }
+  }
 
   // Validate goal exists.
   let goal;
