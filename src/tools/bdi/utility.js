@@ -26,7 +26,7 @@ async function getStartedHandler(args) {
       "Beliefs (state queries), Desires (goals), and Intentions (committed actions). " +
       "Each tool answers one whole agentic question and returns an `as_of` timestamp.",
     tools_by_namespace: {
-      beliefs: ['briefing', 'task_context', 'goal_state', 'recall_knowledge', 'search', 'plan_analysis'],
+      beliefs: ['briefing', 'list_plans', 'task_context', 'goal_state', 'recall_knowledge', 'search', 'plan_analysis'],
       desires: ['list_goals', 'update_goal'],
       intentions: ['claim_next_task', 'update_task', 'release_task', 'queue_decision', 'resolve_decision', 'add_learning'],
     },

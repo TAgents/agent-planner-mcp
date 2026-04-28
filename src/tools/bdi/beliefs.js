@@ -252,6 +252,19 @@ async function goalStateHandler(args, apiClient) {
       direct_downstream_count: t.direct_downstream_count || 0,
     }));
 
+  // Surface the goal's linked plans + tasks. The underlying GET /goals/:id
+  // already returns the `links` array; the previous handler discarded it,
+  // so quality.actionability could report "26 plans linked" while the
+  // response refused to name a single one. Callers had no read-side way
+  // to enumerate the plans served by a goal short of REST.
+  const links = safeArray(goal.links);
+  const linked_plans = links
+    .filter((l) => (l.linkedType || l.linked_type) === 'plan')
+    .map((l) => ({ id: l.linkedId || l.linked_id, link_id: l.id }));
+  const linked_tasks = links
+    .filter((l) => (l.linkedType || l.linked_type) === 'task')
+    .map((l) => ({ id: l.linkedId || l.linked_id, link_id: l.id }));
+
   return formatResponse({
     as_of: asOf(),
     goal: {
@@ -261,6 +274,8 @@ async function goalStateHandler(args, apiClient) {
       owner_id: goal.ownerId || goal.owner_id, success_criteria: goal.successCriteria || goal.success_criteria,
       promoted_at: goal.promotedAt || goal.promoted_at,
     },
+    linked_plans,
+    linked_tasks,
     quality: {
       score: quality.score, dimensions: quality.dimensions,
       suggestions: quality.suggestions, last_assessed_at: quality.as_of,
@@ -349,6 +364,79 @@ async function recallKnowledgeHandler(args, apiClient) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// list_plans — list workspace plans with optional filters.
+// Counterpart to list_goals; previously the only ways to find a plan
+// were knowing the UUID a priori, parsing briefing.recent_activity,
+// or calling task_context on a known node — all bad.
+// ─────────────────────────────────────────────────────────────────────────
+
+const listPlansDefinition = {
+  name: 'list_plans',
+  description:
+    'List plans with optional filters by status, visibility, or text query. ' +
+    'Returns id, title, status, visibility, last update, and link counts so ' +
+    'you can pick a plan to operate on without round-tripping briefing.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      filter: {
+        type: 'object',
+        properties: {
+          status: { type: 'array', items: { type: 'string' } },
+          visibility: { type: 'array', items: { type: 'string', enum: ['private', 'unlisted', 'public'] } },
+          query: { type: 'string', description: 'Substring match on title (case-insensitive)' },
+          limit: { type: 'integer', default: 50 },
+        },
+      },
+    },
+  },
+};
+
+async function listPlansHandler(args, apiClient) {
+  const filter = args.filter || {};
+  try {
+    const raw = await apiClient.plans.getPlans();
+    let plans = Array.isArray(raw) ? raw : safeArray(raw.plans || raw);
+
+    if (filter.status?.length) plans = plans.filter((p) => filter.status.includes(p.status));
+    if (filter.visibility?.length) plans = plans.filter((p) => filter.visibility.includes(p.visibility));
+    if (filter.query) {
+      const q = filter.query.toLowerCase();
+      plans = plans.filter((p) => (p.title || '').toLowerCase().includes(q));
+    }
+    plans = plans.slice(0, filter.limit || 50);
+
+    const summary = plans.reduce(
+      (acc, p) => {
+        acc[p.status] = (acc[p.status] || 0) + 1;
+        acc.total += 1;
+        return acc;
+      },
+      { total: 0 },
+    );
+
+    return formatResponse({
+      as_of: asOf(),
+      summary,
+      plans: plans.map((p) => ({
+        id: p.id,
+        title: p.title,
+        status: p.status,
+        visibility: p.visibility,
+        owner_id: p.owner_id || p.ownerId,
+        updated_at: p.updated_at || p.updatedAt,
+        // Surface progress + tether info when the API decorates the rows;
+        // listPlans on the v2 API now bulk-loads stats + goal_tethers.
+        progress: p.progress ?? p.stats?.percentage,
+        goal_tethers: p.goal_tethers,
+      })),
+    });
+  } catch (err) {
+    return errorResponse('upstream_unavailable', `list_plans failed: ${err.response?.data?.error || err.message}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // search — universal text search.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -376,13 +464,32 @@ const searchDefinition = {
 
 async function searchHandler(args, apiClient) {
   const { query, scope = 'global', scope_id, filters = {} } = args;
+  const limit = filters.limit || 20;
   try {
     let result;
-    const limit = filters.limit || 20;
-    if (scope === 'global') result = await apiClient.search.global(query, { limit, ...filters });
-    else if (scope === 'plans') result = await apiClient.search.plans(query, limit);
-    else if (scope === 'plan') result = await apiClient.search.inPlan(scope_id, query, limit);
-    else if (scope === 'node') result = await apiClient.search.inNode(scope_id, query, limit);
+    // Map MCP scopes onto the actual api-client surface. The handler
+    // previously called apiClient.search.{global,plans,inPlan,inNode}
+    // — none of those methods exist, so every invocation 500'd. The
+    // real api-client exposes globalSearch + searchPlan only; for
+    // 'plans' and 'node' we filter the global result client-side
+    // instead of hitting a (non-existent) per-bucket endpoint.
+    if (scope === 'plan') {
+      if (!scope_id) return errorResponse('invalid_arg', 'search scope=plan requires scope_id');
+      result = await apiClient.search.searchPlan(scope_id, query);
+    } else {
+      const global = await apiClient.search.globalSearch(query);
+      const all = Array.isArray(global?.results) ? global.results : [];
+      const matchScope = (r) => {
+        if (scope === 'global') return true;
+        if (scope === 'plans') return r.type === 'plan';
+        if (scope === 'node') return r.type === 'node' && (!scope_id || r.plan_id === scope_id);
+        return true;
+      };
+      const matchType = (r) => !filters.type || r.type === filters.type;
+      const matchStatus = (r) => !filters.status || r.status === filters.status;
+      const filtered = all.filter((r) => matchScope(r) && matchType(r) && matchStatus(r)).slice(0, limit);
+      result = { results: filtered, count: filtered.length, query, scope };
+    }
     return formatResponse({ as_of: asOf(), ...(result || {}) });
   } catch (err) {
     return errorResponse('upstream_unavailable', `Search failed: ${err.response?.data?.error || err.message}`);
@@ -437,6 +544,7 @@ module.exports = {
     taskContextDefinition,
     goalStateDefinition,
     recallKnowledgeDefinition,
+    listPlansDefinition,
     searchDefinition,
     planAnalysisDefinition,
   ],
@@ -445,6 +553,7 @@ module.exports = {
     task_context: taskContextHandler,
     goal_state: goalStateHandler,
     recall_knowledge: recallKnowledgeHandler,
+    list_plans: listPlansHandler,
     search: searchHandler,
     plan_analysis: planAnalysisHandler,
   },
