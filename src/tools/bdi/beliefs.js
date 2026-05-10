@@ -399,6 +399,7 @@ const listPlansDefinition = {
           status: { type: 'array', items: { type: 'string' } },
           visibility: { type: 'array', items: { type: 'string', enum: ['private', 'unlisted', 'public'] } },
           query: { type: 'string', description: 'Substring match on title (case-insensitive)' },
+          workspace_id: { type: 'string', description: 'Scope to plans inside a single workspace' },
           limit: { type: 'integer', default: 50 },
         },
       },
@@ -414,6 +415,9 @@ async function listPlansHandler(args, apiClient) {
 
     if (filter.status?.length) plans = plans.filter((p) => filter.status.includes(p.status));
     if (filter.visibility?.length) plans = plans.filter((p) => filter.visibility.includes(p.visibility));
+    if (filter.workspace_id) {
+      plans = plans.filter((p) => (p.workspace_id || p.workspaceId) === filter.workspace_id);
+    }
     if (filter.query) {
       const q = filter.query.toLowerCase();
       plans = plans.filter((p) => (p.title || '').toLowerCase().includes(q));

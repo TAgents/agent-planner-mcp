@@ -21,6 +21,7 @@ const listGoalsDefinition = {
         properties: {
           health: { type: 'array', items: { type: 'string', enum: ['on_track', 'at_risk', 'stale'] } },
           status: { type: 'array', items: { type: 'string' } },
+          workspace_id: { type: 'string', description: 'Scope to goals inside a single workspace' },
           include_inactive: { type: 'boolean', default: false },
         },
       },
@@ -32,7 +33,7 @@ async function listGoalsHandler(args, apiClient) {
   const filter = args.filter || {};
   try {
     const [listRes, dashboardRes] = await Promise.allSettled([
-      apiClient.goals.list({ status: filter.include_inactive ? undefined : 'active' }),
+      apiClient.goals.list({ status: filter.include_inactive ? undefined : 'active', workspaceId: filter.workspace_id }),
       apiClient.goals.getDashboard(),
     ]);
 

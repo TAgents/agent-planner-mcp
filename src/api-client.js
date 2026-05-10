@@ -550,6 +550,7 @@ const goals = {
     const params = new URLSearchParams();
     if (filters.organization_id) params.append('organization_id', filters.organization_id);
     if (filters.status) params.append('status', filters.status);
+    if (filters.workspaceId) params.append('workspace_id', filters.workspaceId);
     const response = await apiClient.get(`/goals?${params.toString()}`);
     return response.data.goals || response.data;
   },
@@ -952,6 +953,7 @@ function createApiClient(token, options = {}) {
         const params = new URLSearchParams();
         if (filters.organization_id) params.append('organization_id', filters.organization_id);
         if (filters.status) params.append('status', filters.status);
+        if (filters.workspaceId) params.append('workspace_id', filters.workspaceId);
         const r = await client.get(`/goals?${params.toString()}`);
         return r.data.goals || r.data;
       },
