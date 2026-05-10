@@ -12,12 +12,14 @@ const beliefs = require('./beliefs');
 const desires = require('./desires');
 const intentions = require('./intentions');
 const utility = require('./utility');
+const workspaces = require('./workspaces');
 
 const definitions = [
   ...beliefs.definitions,
   ...desires.definitions,
   ...intentions.definitions,
   ...utility.definitions,
+  ...workspaces.definitions,
 ];
 
 const handlers = {
@@ -25,6 +27,7 @@ const handlers = {
   ...desires.handlers,
   ...intentions.handlers,
   ...utility.handlers,
+  ...workspaces.handlers,
 };
 
 const names = new Set(definitions.map((t) => t.name));

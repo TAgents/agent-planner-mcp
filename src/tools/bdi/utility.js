@@ -29,6 +29,7 @@ async function getStartedHandler(args) {
       beliefs: ['briefing', 'list_plans', 'task_context', 'goal_state', 'recall_knowledge', 'search', 'plan_analysis'],
       desires: ['list_goals', 'update_goal'],
       intentions: ['claim_next_task', 'update_task', 'release_task', 'queue_decision', 'resolve_decision', 'add_learning'],
+      workspaces: ['list_workspaces', 'create_workspace', 'list_blueprints', 'fork_blueprint', 'save_as_blueprint'],
     },
     recommended_workflows: [
       {

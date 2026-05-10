@@ -9,7 +9,7 @@ get_started()
 // → Returns the BDI tool surface map and recommended workflows
 ```
 
-## The 24 tools
+## The 29 tools
 
 ### Beliefs (read state)
 | Tool | When |
@@ -63,6 +63,17 @@ get_started()
 | `invite_member` | Add user to organization |
 | `update_member_role` | Owner-only role change |
 | `remove_member` | Owner/admin removes non-owner member |
+
+### Workspaces & Blueprints (v1.1)
+A Workspace is a folder under an Organization that owns goals + plans. A Blueprint is a reusable shape that forks into a workspace as a new plan.
+
+| Tool | When |
+|---|---|
+| `list_workspaces` | List workspaces in an org (default and any user-created folders) |
+| `create_workspace` | Create a new workspace inside an org |
+| `list_blueprints` | List blueprints visible to user (owned + public/unlisted) |
+| `fork_blueprint` | Instantiate a plan-scope blueprint as a new plan in a target workspace |
+| `save_as_blueprint` | Snapshot a live plan as a reusable blueprint (excludes run-state) |
 
 ## status='active' vs status='draft' (v1.0)
 

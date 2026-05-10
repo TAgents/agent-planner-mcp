@@ -23,7 +23,7 @@ You have access to the AgentPlanner MCP tools. AgentPlanner is a collaborative p
 > - **Cursor / VS Code:** Add `npx agent-planner-mcp` to your MCP config with env vars `API_URL` and `USER_API_TOKEN`
 > - **ChatGPT:** HTTP endpoint at `https://agentplanner.io/mcp`
 
-## The 24 tools, organized by intent
+## The 29 tools, organized by intent
 
 AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desires (goal management), Intentions (committed actions). Each tool answers one whole agentic question and returns an `as_of` ISO 8601 timestamp. v1.0.0 completes the mutation surface so humans can steer entirely through agent conversation — no UI required for normal operations.
 
@@ -71,6 +71,16 @@ AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desi
 - `invite_member` — add user to organization (by user_id or email)
 - `update_member_role` — owner-only role change within an org
 - `remove_member` — owner/admin can remove non-owner members
+
+**Workspaces and Blueprints (v1.1):**
+
+A Workspace is a folder under an Organization that owns goals + plans — a grouping primitive so a single org isn't a flat soup of unrelated work. A Blueprint is a dehydrated, reusable shape (scope `plan` or `workspace`); forking instantiates it as a new plan inside a target workspace. v1 supports plan-scope only.
+
+- `list_workspaces` — list workspaces in an organization
+- `create_workspace` — create a new folder under an org (auto-slug)
+- `list_blueprints` — list blueprints visible to user (owned + public/unlisted), filterable by scope
+- `fork_blueprint` — instantiate a plan-scope blueprint as a new plan in a target workspace
+- `save_as_blueprint` — snapshot a live plan as a reusable blueprint. Captures structure, agent_instructions, and dependencies; excludes statuses, claims, knowledge episodes, logs, decisions, and agent assignments
 
 ### Utility
 
