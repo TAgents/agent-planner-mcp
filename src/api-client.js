@@ -550,6 +550,7 @@ const goals = {
     const params = new URLSearchParams();
     if (filters.organization_id) params.append('organization_id', filters.organization_id);
     if (filters.status) params.append('status', filters.status);
+    if (filters.workspaceId) params.append('workspace_id', filters.workspaceId);
     const response = await apiClient.get(`/goals?${params.toString()}`);
     return response.data.goals || response.data;
   },
@@ -744,6 +745,40 @@ const graphiti = {
   }
 };
 
+// ─── Workspaces ───────────────────────────────────────────────
+const workspaces = {
+  list: async ({ organizationId, includeArchived = false } = {}) => {
+    const params = new URLSearchParams();
+    if (organizationId) params.append('organization_id', organizationId);
+    if (includeArchived) params.append('include_archived', 'true');
+    return (await apiClient.get(`/workspaces?${params.toString()}`)).data;
+  },
+  get: async (workspaceId) => (await apiClient.get(`/workspaces/${workspaceId}`)).data,
+  create: async (data) => (await apiClient.post('/workspaces', data)).data,
+  update: async (workspaceId, data) => (await apiClient.patch(`/workspaces/${workspaceId}`, data)).data,
+  archive: async (workspaceId) => (await apiClient.post(`/workspaces/${workspaceId}/archive`)).data,
+  restore: async (workspaceId) => (await apiClient.post(`/workspaces/${workspaceId}/restore`)).data,
+  delete: async (workspaceId) => (await apiClient.delete(`/workspaces/${workspaceId}`)).data,
+};
+
+// ─── Blueprints ───────────────────────────────────────────────
+const blueprints = {
+  list: async ({ scope, visibility, ownerOnly = false } = {}) => {
+    const params = new URLSearchParams();
+    if (scope) params.append('scope', scope);
+    if (visibility) params.append('visibility', visibility);
+    if (ownerOnly) params.append('owner_only', 'true');
+    const qs = params.toString();
+    return (await apiClient.get(`/blueprints${qs ? `?${qs}` : ''}`)).data;
+  },
+  get: async (blueprintId) => (await apiClient.get(`/blueprints/${blueprintId}`)).data,
+  create: async (data) => (await apiClient.post('/blueprints', data)).data,
+  update: async (blueprintId, data) => (await apiClient.patch(`/blueprints/${blueprintId}`, data)).data,
+  delete: async (blueprintId) => (await apiClient.delete(`/blueprints/${blueprintId}`)).data,
+  fork: async (blueprintId, data) => (await apiClient.post(`/blueprints/${blueprintId}/fork`, data)).data,
+  saveFromPlan: async (planId, data = {}) => (await apiClient.post(`/blueprints/from_plan/${planId}`, data)).data,
+};
+
 // ─── Users (my-tasks queue) ────────────────────────────────────
 const users = {
   getMyTasks: async (options = {}) => {
@@ -918,6 +953,7 @@ function createApiClient(token, options = {}) {
         const params = new URLSearchParams();
         if (filters.organization_id) params.append('organization_id', filters.organization_id);
         if (filters.status) params.append('status', filters.status);
+        if (filters.workspaceId) params.append('workspace_id', filters.workspaceId);
         const r = await client.get(`/goals?${params.toString()}`);
         return r.data.goals || r.data;
       },
@@ -988,6 +1024,36 @@ function createApiClient(token, options = {}) {
       blockWorkSession: async (sessionId, data = {}) => (await client.post(`/agent/work-sessions/${sessionId}/block`, data)).data,
       createIntention: async (data = {}) => (await client.post('/agent/intentions', data)).data,
     },
+    workspaces: {
+      list: async ({ organizationId, includeArchived = false } = {}) => {
+        const params = new URLSearchParams();
+        if (organizationId) params.append('organization_id', organizationId);
+        if (includeArchived) params.append('include_archived', 'true');
+        return (await client.get(`/workspaces?${params.toString()}`)).data;
+      },
+      get: async (workspaceId) => (await client.get(`/workspaces/${workspaceId}`)).data,
+      create: async (data) => (await client.post('/workspaces', data)).data,
+      update: async (workspaceId, data) => (await client.patch(`/workspaces/${workspaceId}`, data)).data,
+      archive: async (workspaceId) => (await client.post(`/workspaces/${workspaceId}/archive`)).data,
+      restore: async (workspaceId) => (await client.post(`/workspaces/${workspaceId}/restore`)).data,
+      delete: async (workspaceId) => (await client.delete(`/workspaces/${workspaceId}`)).data,
+    },
+    blueprints: {
+      list: async ({ scope, visibility, ownerOnly = false } = {}) => {
+        const params = new URLSearchParams();
+        if (scope) params.append('scope', scope);
+        if (visibility) params.append('visibility', visibility);
+        if (ownerOnly) params.append('owner_only', 'true');
+        const qs = params.toString();
+        return (await client.get(`/blueprints${qs ? `?${qs}` : ''}`)).data;
+      },
+      get: async (blueprintId) => (await client.get(`/blueprints/${blueprintId}`)).data,
+      create: async (data) => (await client.post('/blueprints', data)).data,
+      update: async (blueprintId, data) => (await client.patch(`/blueprints/${blueprintId}`, data)).data,
+      delete: async (blueprintId) => (await client.delete(`/blueprints/${blueprintId}`)).data,
+      fork: async (blueprintId, data) => (await client.post(`/blueprints/${blueprintId}/fork`, data)).data,
+      saveFromPlan: async (planId, data = {}) => (await client.post(`/blueprints/from_plan/${planId}`, data)).data,
+    },
     axiosInstance: client,
   };
 }
@@ -1013,6 +1079,8 @@ module.exports = {
   tokens,
   organizations,
   goals,
+  workspaces,
+  blueprints,
   context,
   graphiti,
   dependencies,
