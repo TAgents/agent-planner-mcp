@@ -799,6 +799,22 @@ const agentLoop = {
   createIntention: async (data = {}) => (await apiClient.post('/agent/intentions', data)).data,
 };
 
+// ─── v1 public API facades ────────────────────────────────────
+// Server-side compositions shipped with the API v1 consolidation. Each
+// replaces a client-side fan-out (goal_state: 5 calls → 1, recall_knowledge:
+// up to 4 → 1, update_task: 4 → 1, share_plan: N → 1). Tool handlers fall
+// back to the legacy fan-out when the backend predates /v1 — see
+// isV1Unavailable() in tools/bdi/_shared.js.
+const v1 = {
+  goalState: async (goalId) => (await apiClient.get(`/v1/goals/${goalId}/state`)).data,
+  planAnalysis: async (planId) => (await apiClient.get(`/v1/plans/${planId}/analysis`)).data,
+  knowledgeSearch: async (body = {}) => (await apiClient.post('/v1/knowledge/search', body)).data,
+  updateTask: async (nodeId, body = {}) => (await apiClient.post(`/v1/tasks/${nodeId}/update`, body)).data,
+  sharePlan: async (planId, body = {}) => (await apiClient.post(`/v1/plans/${planId}/share`, body)).data,
+  briefing: async (params = {}) => (await apiClient.get('/v1/briefing', { params })).data,
+  claimNext: async (body = {}) => (await apiClient.post('/v1/tasks/claim-next', body)).data,
+};
+
 // ─── Dependencies (cross-plan & external) ─────────────────────
 const dependencies = {
   /**
@@ -1009,6 +1025,15 @@ function createApiClient(token, options = {}) {
       listCrossPlan: async (planIds) => (await client.get('/dependencies/cross-plan', { params: { plan_ids: planIds.join(',') } })).data,
       createExternal: async (data) => (await client.post('/dependencies/external', data)).data,
     },
+    v1: {
+      goalState: async (goalId) => (await client.get(`/v1/goals/${goalId}/state`)).data,
+      planAnalysis: async (planId) => (await client.get(`/v1/plans/${planId}/analysis`)).data,
+      knowledgeSearch: async (body = {}) => (await client.post('/v1/knowledge/search', body)).data,
+      updateTask: async (nodeId, body = {}) => (await client.post(`/v1/tasks/${nodeId}/update`, body)).data,
+      sharePlan: async (planId, body = {}) => (await client.post(`/v1/plans/${planId}/share`, body)).data,
+      briefing: async (params = {}) => (await client.get('/v1/briefing', { params })).data,
+      claimNext: async (body = {}) => (await client.post('/v1/tasks/claim-next', body)).data,
+    },
     users: {
       getMyTasks: async (options = {}) => {
         const params = new URLSearchParams();
@@ -1087,6 +1112,7 @@ module.exports = {
   coherence,
   users,
   agentLoop,
+  v1,
   axiosInstance,  // Export for direct API calls
   createApiClient  // Factory for per-session clients (HTTP mode)
 };

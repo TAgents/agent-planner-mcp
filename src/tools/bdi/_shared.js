@@ -26,4 +26,16 @@ function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-module.exports = { asOf, formatResponse, errorResponse, safeArray };
+/**
+ * True when an error means the backend has no /v1 surface (pre-consolidation
+ * self-hosted API). Express returns a default 404 with no structured body for
+ * unmatched routes, whereas v1 handlers always return JSON with an `error`
+ * field — so a bare 404 means "route missing", not "resource missing".
+ */
+function isV1Unavailable(err) {
+  if (err.response?.status !== 404) return false;
+  const body = err.response.data;
+  return !(body && typeof body === 'object' && body.error);
+}
+
+module.exports = { asOf, formatResponse, errorResponse, safeArray, isV1Unavailable };

@@ -5,7 +5,7 @@
  * plan_analysis. Each answers one whole agentic question and returns `as_of`.
  */
 
-const { asOf, formatResponse, errorResponse, safeArray } = require('./_shared');
+const { asOf, formatResponse, errorResponse, safeArray, isV1Unavailable } = require('./_shared');
 
 // ─────────────────────────────────────────────────────────────────────────
 // briefing — bundled mission control state. Replaces 4 round trips.
@@ -30,15 +30,24 @@ const briefingDefinition = {
 };
 
 async function briefingHandler(args, apiClient) {
+  const briefingParams = {
+    scope: args.scope,
+    goal_id: args.goal_id,
+    plan_id: args.plan_id,
+    recent_window_hours: args.recent_window_hours,
+  };
+
+  // v1 public path first; same server-side handler as /agent/briefing.
+  if (apiClient.v1) {
+    try {
+      return formatResponse(await apiClient.v1.briefing(briefingParams));
+    } catch {
+      // Fall through to the internal facade path, then the legacy fan-out.
+    }
+  }
+
   try {
-    const response = await apiClient.axiosInstance.get('/agent/briefing', {
-      params: {
-        scope: args.scope,
-        goal_id: args.goal_id,
-        plan_id: args.plan_id,
-        recent_window_hours: args.recent_window_hours,
-      },
-    });
+    const response = await apiClient.axiosInstance.get('/agent/briefing', { params: briefingParams });
     return formatResponse(response.data);
   } catch {
     // Fall back to the pre-facade fan-out for self-hosted older APIs.
@@ -232,6 +241,22 @@ const goalStateDefinition = {
 
 async function goalStateHandler(args, apiClient) {
   const { goal_id } = args;
+
+  // v1 facade: one server-side call replaces the 5-endpoint fan-out below.
+  // Same response shape — the server composition was ported from this handler.
+  if (apiClient.v1) {
+    try {
+      return formatResponse(await apiClient.v1.goalState(goal_id));
+    } catch (err) {
+      if (!isV1Unavailable(err)) {
+        const status = err.response?.status;
+        if (status === 404) return errorResponse('not_found', `Goal ${goal_id} not found`);
+        if (status === 403) return errorResponse('forbidden', 'Access denied to this goal');
+        // 5xx and friends: fall through to the legacy fan-out best-effort path.
+      }
+    }
+  }
+
   const [goalRes, qualityRes, progressRes, gapsRes, pathRes] = await Promise.allSettled([
     apiClient.goals.get(goal_id),
     apiClient.goals.getQuality(goal_id),
@@ -330,6 +355,22 @@ const recallKnowledgeDefinition = {
 
 async function recallKnowledgeHandler(args, apiClient) {
   const { query, scope = {}, since, entry_type = 'all', result_kind = 'all', max_results = 10, include_contradictions = false } = args;
+
+  // v1 facade: one server-side call replaces the 4-endpoint fan-out below.
+  if (apiClient.v1) {
+    try {
+      const data = await apiClient.v1.knowledgeSearch({
+        query, since, entry_type, result_kind, max_results, include_contradictions, ...scope,
+      });
+      return formatResponse(data);
+    } catch (err) {
+      if (!isV1Unavailable(err)) {
+        // v1 exists but errored — keep going with the legacy fan-out, which
+        // already treats every sub-call as best-effort.
+      }
+    }
+  }
+
   const wantFacts = result_kind === 'all' || result_kind === 'facts';
   const wantEntities = result_kind === 'all' || result_kind === 'entities';
   const wantEpisodes = result_kind === 'all' || result_kind === 'episodes';

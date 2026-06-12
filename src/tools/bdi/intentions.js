@@ -13,7 +13,7 @@
  * See ../../../docs/MCP_v1.0_FULL_SURFACE.md for design rationale.
  */
 
-const { asOf, formatResponse, errorResponse } = require('./_shared');
+const { asOf, formatResponse, errorResponse, isV1Unavailable } = require('./_shared');
 
 // ─────────────────────────────────────────────────────────────────────────
 // queue_decision — real decision queue. Replaces add_learning workaround.
@@ -312,6 +312,28 @@ async function updateTaskHandler(args, apiClient) {
     }
   }
 
+  // v1 facade: one atomic server-side call (status + log + claim release +
+  // learning) replaces the 4-endpoint fan-out below. Same response shape.
+  if (apiClient.v1) {
+    try {
+      const data = await apiClient.v1.updateTask(task_id, {
+        status,
+        log_message,
+        log_type: args.log_type,
+        release_claim,
+        add_learning,
+      });
+      return formatResponse(data);
+    } catch (err) {
+      if (!isV1Unavailable(err)) {
+        const s = err.response?.status;
+        if (s === 404) return errorResponse('not_found', `Task ${task_id} not found`);
+        if (s === 403) return errorResponse('forbidden', 'Access denied to this plan');
+        // 5xx: fall through to the legacy fan-out.
+      }
+    }
+  }
+
   // Resolve plan_id from task if not provided.
   if (!planId) {
     try {
@@ -427,16 +449,27 @@ async function claimNextTaskHandler(args, apiClient) {
   const { scope = {}, ttl_minutes = 30, fresh = false, context_depth = 2, dry_run = false } = args;
   const { plan_id, goal_id } = scope;
 
+  const sessionBody = {
+    plan_id,
+    goal_id,
+    ttl_minutes,
+    fresh,
+    dry_run,
+    depth: context_depth,
+    agent_id: 'mcp-agent',
+  };
+
+  // v1 public path first; same server-side handler as /agent/work-sessions.
+  if (apiClient.v1) {
+    try {
+      return formatResponse(await apiClient.v1.claimNext(sessionBody));
+    } catch {
+      // Fall through to the internal facade path, then the legacy fan-out.
+    }
+  }
+
   try {
-    const response = await apiClient.axiosInstance.post('/agent/work-sessions', {
-      plan_id,
-      goal_id,
-      ttl_minutes,
-      fresh,
-      dry_run,
-      depth: context_depth,
-      agent_id: 'mcp-agent',
-    });
+    const response = await apiClient.axiosInstance.post('/agent/work-sessions', sessionBody);
     return formatResponse(response.data);
   } catch {
     // Fall back to the pre-facade fan-out for self-hosted older APIs.
@@ -1480,6 +1513,28 @@ const sharePlanDefinition = {
 
 async function sharePlanHandler(args, apiClient) {
   const { plan_id, visibility, add_collaborators = [], remove_collaborators = [] } = args;
+
+  // v1 facade: one atomic server-side call replaces the per-collaborator
+  // fan-out below. Same response shape (applied_changes + failures).
+  if (apiClient.v1) {
+    try {
+      const data = await apiClient.v1.sharePlan(plan_id, {
+        visibility,
+        add_collaborators,
+        remove_collaborators,
+      });
+      return formatResponse(data);
+    } catch (err) {
+      if (!isV1Unavailable(err)) {
+        const s = err.response?.status;
+        if (s === 400 || s === 403 || s === 404) {
+          return errorResponse('invalid_arg', err.response?.data?.error || err.message);
+        }
+        // 5xx: fall through to the legacy fan-out.
+      }
+    }
+  }
+
   const applied = [];
   const failures = [];
 
