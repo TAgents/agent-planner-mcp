@@ -260,12 +260,14 @@ When a user expresses intent — "I want to launch a feature", "we need better t
 2. list_goals to check if a similar goal already exists
 3. Use update_goal({ add_linked_plans, add_achievers }) to wire it up
 
-Goal types:
-- desire — aspirational, no firm deadline
-- intention — promoted from desire when execution begins
+Goal commitment (`committed` boolean):
+- committed: false — aspirational, no firm commitment to execute yet
+- committed: true — promoted to active execution
 ```
 
-Promote desire → intention via `update_goal({ promote_to_intention: true })`.
+Commit a goal via `update_goal({ changes: { committed: true } })`. Coherence
+status on tasks reads as plain language: `ok` / `outdated` / `contradicted` /
+`unchecked` (with a `coherence_message`).
 
 ## Decision queueing
 

@@ -1057,7 +1057,10 @@ async function proposeResearchChainHandler(args, apiClient) {
 // Cycle detection happens server-side; we surface the 409 cleanly.
 // ─────────────────────────────────────────────────────────────────────────
 
-const VALID_RELATIONS = ['blocks', 'requires', 'relates_to'];
+// Canonical node→node dependency vocabulary (backend ring-2 consolidation).
+// `requires` is still accepted by the API (mapped to `blocks`) but no longer
+// offered here.
+const VALID_RELATIONS = ['blocks', 'relates_to'];
 
 const linkIntentionsDefinition = {
   name: 'link_intentions',

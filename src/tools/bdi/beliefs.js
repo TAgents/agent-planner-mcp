@@ -308,7 +308,7 @@ async function goalStateHandler(args, apiClient) {
     as_of: asOf(),
     goal: {
       id: goal.id, title: goal.title, description: goal.description,
-      type: goal.type, goal_type: goal.goalType || goal.goal_type,
+      type: goal.type, committed: Boolean(goal.committed ?? goal.promotedAt ?? goal.promoted_at),
       status: goal.status, priority: goal.priority,
       owner_id: goal.ownerId || goal.owner_id, success_criteria: goal.successCriteria || goal.success_criteria,
       promoted_at: goal.promotedAt || goal.promoted_at,

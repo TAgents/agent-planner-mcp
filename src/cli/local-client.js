@@ -195,13 +195,15 @@ function renderPlanHealth(plan) {
 function renderCoherenceWarning(task) {
   if (!task || !task.coherence_status) return [];
   const status = task.coherence_status;
-  if (status === 'clean' || status === 'unchecked') return [];
+  if (status === 'ok' || status === 'coherent' || status === 'clean' || status === 'unchecked') return [];
 
   const out = ['## Coherence warning', ''];
   out.push(`- Status: ${status}`);
-  if (status === 'contradiction_detected') {
+  // Accept both the public vocabulary and the legacy internal values so the
+  // CLI keeps working against older backends.
+  if (status === 'contradicted' || status === 'contradiction_detected') {
     out.push('- Supporting knowledge contains contradictions. Run `check_contradictions` (MCP) and re-verify before acting.');
-  } else if (status === 'stale_beliefs') {
+  } else if (status === 'outdated' || status === 'stale_beliefs') {
     out.push('- Knowledge backing this task may be outdated. Run `recall_knowledge` (MCP) to refresh before deciding.');
   }
   out.push('');
