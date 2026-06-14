@@ -89,9 +89,10 @@ const updateGoalDefinition = {
           description: { type: 'string' },
           priority: { type: 'integer' },
           status: { type: 'string' },
-          goal_type: { type: 'string', enum: ['desire', 'intention'] },
+          // Commitment: true once the goal is promoted to active execution
+          // (replaces the old desire/intention goal_type vocabulary).
+          committed: { type: 'boolean' },
           success_criteria: {},
-          promote_to_intention: { type: 'boolean' },
           add_linked_plans: { type: 'array', items: { type: 'string' } },
           remove_linked_plans: { type: 'array', items: { type: 'string' } },
           add_achievers: { type: 'array', items: { type: 'string' } },
@@ -113,8 +114,12 @@ async function updateGoalHandler(args, apiClient) {
   for (const k of ['title', 'description', 'priority', 'status', 'success_criteria']) {
     if (changes[k] !== undefined) directFields[k] = changes[k];
   }
-  if (changes.goal_type) directFields.goalType = changes.goal_type;
-  if (changes.promote_to_intention) directFields.goalType = 'intention';
+  // Map the public `committed` boolean onto the backend's commitment write
+  // (the API still accepts the legacy goalType field and translates it to
+  // promoted_at). committed:true ⇒ promoted, false ⇒ aspirational.
+  if (changes.committed !== undefined) {
+    directFields.goalType = changes.committed ? 'intention' : 'desire';
+  }
 
   if (Object.keys(directFields).length) {
     try {

@@ -164,3 +164,35 @@ describe('derive_subgoal tool', () => {
     );
   });
 });
+
+describe('update_goal tool — committed vocabulary (ring-3 alignment)', () => {
+  function parse(resp) { return JSON.parse(resp.content[0].text); }
+
+  it('maps committed:true onto the backend commitment write', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'g1' });
+    const apiClient = { goals: { update } };
+    await desires.handlers.update_goal(
+      { goal_id: 'g1', changes: { committed: true } },
+      apiClient,
+    );
+    expect(update).toHaveBeenCalledWith('g1', expect.objectContaining({ goalType: 'intention' }));
+  });
+
+  it('maps committed:false onto an aspirational write', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'g1' });
+    const apiClient = { goals: { update } };
+    await desires.handlers.update_goal(
+      { goal_id: 'g1', changes: { committed: false } },
+      apiClient,
+    );
+    expect(update).toHaveBeenCalledWith('g1', expect.objectContaining({ goalType: 'desire' }));
+  });
+
+  it('no longer exposes the desire/intention goal_type input', () => {
+    const def = desires.definitions.find((d) => d.name === 'update_goal');
+    const changeProps = def.inputSchema.properties.changes.properties;
+    expect(changeProps.goal_type).toBeUndefined();
+    expect(changeProps.promote_to_intention).toBeUndefined();
+    expect(changeProps.committed).toEqual({ type: 'boolean' });
+  });
+});
