@@ -26,27 +26,30 @@ CLI — OAuth is additive.
 |---|---|
 | `/.well-known/oauth-protected-resource/mcp` | RFC 9728 — points to the AS |
 | `/.well-known/oauth-authorization-server` | RFC 8414 — AS metadata |
-| `/register` | RFC 7591 — Dynamic Client Registration |
-| `/authorize` | Consent + AP login (renders sign-in page) |
+| `/oauth/register` | RFC 7591 — Dynamic Client Registration |
+| `/oauth/authorize` | Consent + AP login (renders sign-in page) |
 | `/oauth/consent` | Form POST → authenticates via AP `/auth/login`, issues code |
-| `/token` | Authorization Code + PKCE (S256) → access/refresh tokens |
-| `/revoke` | Token revocation |
+| `/oauth/token` | Authorization Code + PKCE (S256) → access/refresh tokens |
+
+The AS endpoints live under **`/oauth/*`**, NOT the OAuth-spec default root paths
+— because `/register` would collide with the web UI's signup route. Discovery
+metadata still sits at the standard root well-known paths and advertises the
+`/oauth/*` endpoint URLs, so connectors resolve them automatically. (Token
+revocation is not offered — access tokens are stateless AP JWTs.)
 
 The 401 on `/mcp` carries `WWW-Authenticate: Bearer resource_metadata="…"` so
 connectors discover the AS automatically.
 
 ## Deployment requirements (IMPORTANT)
 
-1. **nginx routing.** These OAuth paths live at the **domain root**, but nginx
-   currently proxies only `/mcp` to the MCP container. Add proxy rules so the
-   MCP container also receives:
+1. **nginx routing.** Proxy these to the MCP container (today only `/mcp` is):
    - `/.well-known/oauth-authorization-server`
-   - `/.well-known/oauth-protected-resource` (and `/.well-known/oauth-protected-resource/mcp`)
-   - `/register`, `/authorize`, `/token`, `/revoke`, `/oauth/consent`
+   - `/.well-known/oauth-protected-resource` (covers the `/mcp` suffix)
+   - `/oauth/` (authorize, token, register, consent)
 
-   Without this, `claude.ai` hits the frontend (not the MCP server) when
-   resolving discovery metadata and the connector cannot register. (Update the
-   nginx config in `agent-planner-devops`.)
+   These do NOT collide with the web UI's root routes (`/login`, `/register`,
+   `/auth/callback`). Without them, `claude.ai` hits the frontend when resolving
+   discovery metadata and the connector cannot register.
 
 2. **Issuer env var.** Set `OAUTH_ISSUER_URL=https://agentplanner.io` on the MCP
    container (defaults to `https://agentplanner.io`; must be the public origin

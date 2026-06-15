@@ -17,7 +17,11 @@ const { SessionManager } = require('./session-manager');
 const { setupTools } = require('./tools');
 const { createApiClient } = require('./api-client');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
-const { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } = require('@modelcontextprotocol/sdk/server/auth/router.js');
+const { createOAuthMetadata, mcpAuthMetadataRouter, getOAuthProtectedResourceMetadataUrl } = require('@modelcontextprotocol/sdk/server/auth/router.js');
+const { authorizationHandler } = require('@modelcontextprotocol/sdk/server/auth/handlers/authorize.js');
+const { tokenHandler } = require('@modelcontextprotocol/sdk/server/auth/handlers/token.js');
+const { clientRegistrationHandler } = require('@modelcontextprotocol/sdk/server/auth/handlers/register.js');
+const { revocationHandler } = require('@modelcontextprotocol/sdk/server/auth/handlers/revoke.js');
 const { version } = require('../package.json');
 const { BackendOAuthStore } = require('./oauth/store');
 const { ApOAuthProvider } = require('./oauth/provider');
@@ -77,17 +81,46 @@ class MCPHTTPServer {
 
     // ── OAuth authorization server ───────────────────────────────────────────
     // Mounted BEFORE the MCP auth/version/origin middleware so the browser- and
-    // connector-facing OAuth endpoints (discovery metadata, /authorize, /token,
-    // /register, /revoke) bypass the MCP-protocol checks. Unmatched paths (e.g.
-    // /mcp) fall through to the middleware below.
-    this.app.post('/oauth/consent', makeConsentHandler({ store: this.oauthStore, apiUrl: this.apiUrl }));
-    this.app.use(mcpAuthRouter({
-      provider: this.oauthProvider,
-      issuerUrl: new URL(this.publicBaseUrl),
+    // connector-facing OAuth endpoints bypass the MCP-protocol checks. Unmatched
+    // paths (e.g. /mcp) fall through to the middleware below.
+    //
+    // The endpoints live under /oauth/* — NOT the SDK's default root paths —
+    // because /register would otherwise collide with the web UI's signup route.
+    // The SDK's mcpAuthRouter hard-codes root-relative endpoint paths, so we
+    // compose it by hand: serve discovery metadata advertising the /oauth/* URLs,
+    // and mount the handlers under /oauth.
+    const issuerUrl = new URL(this.publicBaseUrl);
+    const oauthBase = `${this.publicBaseUrl}/oauth`;
+    const baseMetadata = createOAuthMetadata({ provider: this.oauthProvider, issuerUrl, scopesSupported: ['agentplanner'] });
+    const oauthMetadata = {
+      ...baseMetadata,
+      authorization_endpoint: `${oauthBase}/authorize`,
+      token_endpoint: `${oauthBase}/token`,
+      registration_endpoint: baseMetadata.registration_endpoint ? `${oauthBase}/register` : undefined,
+      revocation_endpoint: baseMetadata.revocation_endpoint ? `${oauthBase}/revoke` : undefined,
+    };
+
+    // Discovery metadata at the RFC well-known paths (AS metadata at root,
+    // protected-resource at /.well-known/oauth-protected-resource/mcp).
+    this.app.use(mcpAuthMetadataRouter({
+      oauthMetadata,
       resourceServerUrl: new URL(`${this.publicBaseUrl}/mcp`),
       scopesSupported: ['agentplanner'],
       resourceName: 'AgentPlanner',
     }));
+
+    // AS endpoints under /oauth/* (matches the advertised metadata URLs).
+    const oauthRouter = express.Router();
+    oauthRouter.use('/authorize', authorizationHandler({ provider: this.oauthProvider }));
+    oauthRouter.use('/token', tokenHandler({ provider: this.oauthProvider }));
+    oauthRouter.post('/consent', makeConsentHandler({ store: this.oauthStore, apiUrl: this.apiUrl }));
+    oauthRouter.use('/register', clientRegistrationHandler({ clientsStore: this.oauthProvider.clientsStore }));
+    // Revocation only if the provider supports it. Access tokens are stateless
+    // AP JWTs (no denylist), so we don't — and the metadata omits the endpoint.
+    if (typeof this.oauthProvider.revokeToken === 'function') {
+      oauthRouter.use('/revoke', revocationHandler({ provider: this.oauthProvider }));
+    }
+    this.app.use('/oauth', oauthRouter);
 
     // Protocol version validation
     this.app.use((req, res, next) => {
