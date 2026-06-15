@@ -3,6 +3,7 @@
  */
 
 const { asOf, formatResponse } = require('./_shared');
+const { version: MCP_VERSION } = require('../../../package.json');
 
 const getStartedDefinition = {
   name: 'get_started',
@@ -21,6 +22,7 @@ const getStartedDefinition = {
 async function getStartedHandler(args) {
   return formatResponse({
     as_of: asOf(),
+    mcp_version: MCP_VERSION,
     overview:
       "AgentPlanner exposes a BDI-aligned MCP surface. Tools are grouped by " +
       "Beliefs (state queries), Desires (goals), and Intentions (committed actions). " +

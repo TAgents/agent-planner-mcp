@@ -737,10 +737,14 @@ const formIntentionDefinition = {
   name: 'form_intention',
   description:
     "Create a plan that achieves a goal, including an initial phase/task " +
-    "tree, in one call. Defaults to status='active' for human-directed " +
-    "creation; pass status='draft' for autonomous loops so a human can " +
-    "review before promotion. Drafts surface in the dashboard pending " +
-    "queue and auto-promote to active when work begins on any node.",
+    "tree, in one call. Declare execution order inline: give nodes a `ref` and " +
+    "list prerequisite refs/titles in `depends_on` to create 'blocks' edges in " +
+    "the same call — don't ship a bare hierarchy. The response returns a " +
+    "`structure` summary and warns (`created_without_dependencies`) when a " +
+    "multi-task plan has no edges. Defaults to status='active' for " +
+    "human-directed creation; pass status='draft' for autonomous loops so a " +
+    "human can review before promotion. Drafts surface in the dashboard " +
+    "pending queue and auto-promote to active when work begins on any node.",
   inputSchema: {
     type: 'object',
     properties: {
@@ -769,6 +773,12 @@ const formIntentionDefinition = {
             description: { type: 'string' },
             task_mode: { type: 'string', enum: VALID_TASK_MODES, default: 'free' },
             agent_instructions: { type: 'string' },
+            ref: { type: 'string', description: "Optional stable key so other nodes can reference this one in depends_on. Falls back to title if omitted." },
+            depends_on: {
+              type: 'array',
+              items: { type: 'string' },
+              description: "Refs (or titles) of nodes that must complete before this one. Creates a 'blocks' edge from each prerequisite to this node.",
+            },
             children: { type: 'array' },
           },
           required: ['title'],
@@ -779,7 +789,10 @@ const formIntentionDefinition = {
   },
 };
 
-async function createSubtree(apiClient, planId, parentId, children, results) {
+// `ctx` (optional) collects ref/title → id maps and depends_on intents so the
+// caller can wire dependency edges after the whole tree exists. Omitted by
+// callers that don't support inline deps (e.g. extend_intention).
+async function createSubtree(apiClient, planId, parentId, children, results, ctx = null) {
   for (const child of children || []) {
     let createdNode;
     try {
@@ -801,8 +814,18 @@ async function createSubtree(apiClient, planId, parentId, children, results) {
       continue;
     }
 
+    if (ctx && createdNode?.id) {
+      if (child.ref) ctx.refMap.set(String(child.ref), createdNode.id);
+      const list = ctx.titleMap.get(child.title) || [];
+      list.push(createdNode.id);
+      ctx.titleMap.set(child.title, list);
+      if (Array.isArray(child.depends_on) && child.depends_on.length) {
+        ctx.edgeIntents.push({ dependsOn: child.depends_on.map(String), targetId: createdNode.id });
+      }
+    }
+
     if (child.children?.length && createdNode?.id) {
-      await createSubtree(apiClient, planId, createdNode.id, child.children, results);
+      await createSubtree(apiClient, planId, createdNode.id, child.children, results, ctx);
     }
   }
 }
@@ -889,9 +912,47 @@ async function formIntentionHandler(args, apiClient) {
 
   // 3. Create tree (top-level children parent to root via omitted parent_id).
   const nodeResults = [];
-  await createSubtree(apiClient, plan.id, null, tree, nodeResults);
+  const ctx = { refMap: new Map(), titleMap: new Map(), edgeIntents: [] };
+  await createSubtree(apiClient, plan.id, null, tree, nodeResults, ctx);
 
-  return formatResponse({
+  // 4. Wire inline dependency edges. depends_on:[X] on N means X blocks N.
+  const resolveRef = (ref) => {
+    if (ctx.refMap.has(ref)) return ctx.refMap.get(ref);
+    const byTitle = ctx.titleMap.get(ref);
+    return byTitle && byTitle.length === 1 ? byTitle[0] : null;
+  };
+  const dependencyWarnings = [];
+  let dependencyEdges = 0;
+  for (const intent of ctx.edgeIntents) {
+    for (const ref of intent.dependsOn) {
+      const sourceId = resolveRef(ref);
+      if (!sourceId || sourceId === intent.targetId) {
+        dependencyWarnings.push(`Unresolved, ambiguous, or self depends_on reference "${ref}"`);
+        continue;
+      }
+      try {
+        await apiClient.axiosInstance.post('/dependencies', {
+          source_node_id: sourceId,
+          target_node_id: intent.targetId,
+          dependency_type: 'blocks',
+        });
+        dependencyEdges += 1;
+      } catch (err) {
+        dependencyWarnings.push(`Edge ${ref}→task rejected: ${err.response?.data?.error || err.message}`);
+      }
+    }
+  }
+
+  const taskCount = nodeResults.filter((n) => n.id && (n.node_type === 'task' || n.node_type === 'milestone')).length;
+  const createdWithoutDependencies = taskCount >= 2 && dependencyEdges === 0;
+  const structure = {
+    task_count: taskCount,
+    dependency_edges: dependencyEdges,
+    created_without_dependencies: createdWithoutDependencies,
+  };
+  if (dependencyWarnings.length) structure.dependency_warnings = dependencyWarnings;
+
+  const response = {
     as_of: asOf(),
     plan_id: plan.id,
     goal_id,
@@ -900,10 +961,18 @@ async function formIntentionHandler(args, apiClient) {
     nodes_created: nodeResults.filter((n) => n.id).length,
     node_failures: nodeResults.filter((n) => n.error),
     nodes: nodeResults,
+    structure,
     next_step: plan.status === 'draft'
       ? "Plan created as draft. Will surface in dashboard pending for human review. Auto-promotes to active when first task moves to in_progress."
       : "Plan active. Claim a task with claim_next_task({plan_id}) to begin work.",
-  });
+  };
+  if (createdWithoutDependencies) {
+    response.warning =
+      `Plan has ${taskCount} tasks but no dependency edges — execution order is implicit only.`;
+    response.next_required_action =
+      'Call link_intentions to add blocking edges, or confirm the tasks are order-independent.';
+  }
+  return formatResponse(response);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
