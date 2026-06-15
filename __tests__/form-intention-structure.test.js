@@ -168,6 +168,41 @@ describe('form_intention — inline dependencies (legacy path)', () => {
   });
 });
 
+describe('form_intention — provenance stamp', () => {
+  const TAG = `agent-planner-mcp@${pkg.version}`;
+
+  it('sends client_version to createIntention on the server path', async () => {
+    const client = {
+      agentLoop: { createIntention: jest.fn().mockResolvedValue({ plan: { id: PLAN_ID, status: 'active' }, tree: [], structure: {} }) },
+      goals: { get: jest.fn() },
+      plans: { createPlan: jest.fn() },
+      nodes: { createNode: jest.fn() },
+    };
+
+    await intentions.handlers.form_intention(
+      { goal_id: GOAL_ID, title: 'P', rationale: 'r', tree: [{ title: 'A', node_type: 'task' }] },
+      client,
+    );
+
+    expect(client.agentLoop.createIntention).toHaveBeenCalledWith(expect.objectContaining({ client_version: TAG }));
+  });
+
+  it('stamps created_by into plan metadata and structure on the legacy path', async () => {
+    const client = legacyClient();
+
+    const result = await intentions.handlers.form_intention(
+      { goal_id: GOAL_ID, title: 'P', rationale: 'r', tree: [{ title: 'A', node_type: 'task' }] },
+      client,
+    );
+    const body = parse(result);
+
+    expect(client.plans.createPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: { created_by: TAG } }),
+    );
+    expect(body.structure.created_by).toBe(TAG);
+  });
+});
+
 describe('get_started — version reporting', () => {
   it('reports the running MCP version', async () => {
     const result = await utility.handlers.get_started({});

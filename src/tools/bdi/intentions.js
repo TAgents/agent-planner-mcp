@@ -14,6 +14,11 @@
  */
 
 const { asOf, formatResponse, errorResponse, isV1Unavailable } = require('./_shared');
+const { version: PKG_VERSION } = require('../../../package.json');
+
+// Provenance tag stamped onto every plan this server creates, so a plan stays
+// debuggable later even if this MCP build is stale relative to the API.
+const CLIENT_TAG = `agent-planner-mcp@${PKG_VERSION}`;
 
 // ─────────────────────────────────────────────────────────────────────────
 // queue_decision — real decision queue. Replaces add_learning workaround.
@@ -847,6 +852,7 @@ async function formIntentionHandler(args, apiClient) {
         status,
         visibility,
         tree,
+        client_version: CLIENT_TAG,
       });
       return formatResponse({
         ...result,
@@ -889,6 +895,7 @@ async function formIntentionHandler(args, apiClient) {
       title,
       description: composedDescription,
       status,
+      metadata: { created_by: CLIENT_TAG },
     });
   } catch (err) {
     return errorResponse('create_failed', `Failed to create plan: ${err.response?.data?.error || err.message}`);
@@ -949,6 +956,7 @@ async function formIntentionHandler(args, apiClient) {
     task_count: taskCount,
     dependency_edges: dependencyEdges,
     created_without_dependencies: createdWithoutDependencies,
+    created_by: CLIENT_TAG,
   };
   if (dependencyWarnings.length) structure.dependency_warnings = dependencyWarnings;
 
