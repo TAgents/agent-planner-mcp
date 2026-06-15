@@ -68,14 +68,24 @@ class MCPHTTPServer {
    * Setup Express middleware
    */
   setupMiddleware() {
+    // Behind nginx: trust the proxy so express-rate-limit (on the OAuth
+    // endpoints) reads the real client IP from X-Forwarded-For instead of
+    // throwing ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+    this.app.set('trust proxy', 1);
+
     // Parse JSON + urlencoded bodies (OAuth /token uses form encoding; the
     // consent form posts urlencoded; /register + MCP use JSON).
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: false }));
 
-    // Logging middleware
+    // Logging middleware — log the request and, on finish, the status (+ the
+    // redirect target for 3xx, which is critical for debugging the OAuth flow).
     this.app.use((req, res, next) => {
       console.error(`${req.method} ${req.path} - ${req.get('MCP-Protocol-Version') || 'no version'}`);
+      res.on('finish', () => {
+        const loc = res.getHeader('location');
+        console.error(`  ↳ ${req.method} ${req.path} → ${res.statusCode}${loc ? ` Location=${loc}` : ''}`);
+      });
       next();
     });
 
