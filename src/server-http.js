@@ -17,7 +17,11 @@ const { SessionManager } = require('./session-manager');
 const { setupTools } = require('./tools');
 const { createApiClient } = require('./api-client');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+const { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } = require('@modelcontextprotocol/sdk/server/auth/router.js');
 const { version } = require('../package.json');
+const { OAuthStore } = require('./oauth/store');
+const { ApOAuthProvider } = require('./oauth/provider');
+const { makeConsentHandler } = require('./oauth/consent');
 require('dotenv').config();
 
 // MCP Protocol Version
@@ -37,6 +41,15 @@ class MCPHTTPServer {
     // Store for pending SSE streams per session
     this.sseStreams = new Map(); // sessionId -> { res, req }
 
+    // OAuth authorization server (for claude.ai / Claude Design connectors,
+    // which require the MCP OAuth handshake — static ApiKey is rejected there).
+    // The issuer/public origin is where claude.ai reaches the AS endpoints.
+    this.publicBaseUrl = (options.publicBaseUrl || process.env.OAUTH_ISSUER_URL || process.env.PUBLIC_URL || 'https://agentplanner.io').replace(/\/$/, '');
+    this.apiUrl = options.apiUrl || process.env.API_URL || 'http://localhost:3000';
+    this.oauthStore = new OAuthStore();
+    this.oauthProvider = new ApOAuthProvider({ store: this.oauthStore });
+    this.resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(new URL(`${this.publicBaseUrl}/mcp`));
+
     // Create Express app
     this.app = express();
 
@@ -51,14 +64,30 @@ class MCPHTTPServer {
    * Setup Express middleware
    */
   setupMiddleware() {
-    // Parse JSON bodies
+    // Parse JSON + urlencoded bodies (OAuth /token uses form encoding; the
+    // consent form posts urlencoded; /register + MCP use JSON).
     this.app.use(express.json());
+    this.app.use(express.urlencoded({ extended: false }));
 
     // Logging middleware
     this.app.use((req, res, next) => {
       console.error(`${req.method} ${req.path} - ${req.get('MCP-Protocol-Version') || 'no version'}`);
       next();
     });
+
+    // ── OAuth authorization server ───────────────────────────────────────────
+    // Mounted BEFORE the MCP auth/version/origin middleware so the browser- and
+    // connector-facing OAuth endpoints (discovery metadata, /authorize, /token,
+    // /register, /revoke) bypass the MCP-protocol checks. Unmatched paths (e.g.
+    // /mcp) fall through to the middleware below.
+    this.app.post('/oauth/consent', makeConsentHandler({ store: this.oauthStore, apiUrl: this.apiUrl }));
+    this.app.use(mcpAuthRouter({
+      provider: this.oauthProvider,
+      issuerUrl: new URL(this.publicBaseUrl),
+      resourceServerUrl: new URL(`${this.publicBaseUrl}/mcp`),
+      scopesSupported: ['agentplanner'],
+      resourceName: 'AgentPlanner',
+    }));
 
     // Protocol version validation
     this.app.use((req, res, next) => {
@@ -79,28 +108,46 @@ class MCPHTTPServer {
       next();
     });
 
-    // Authentication — require Authorization header on /mcp
+    // Authentication — require Authorization header on /mcp.
+    // Three credential types are accepted:
+    //   1. ApiKey <token>      — AP API token (legacy, Desktop/Code/CLI)
+    //   2. Bearer <ap-jwt>     — raw AP JWT (legacy)
+    //   3. Bearer <oauth-tok>  — opaque token issued by our OAuth AS; resolved
+    //                            to the user's AP JWT (claude.ai / Claude Design)
+    // On a missing/invalid token we emit WWW-Authenticate with the protected-
+    // resource metadata URL so OAuth clients can discover the auth server.
     this.app.use((req, res, next) => {
-      if (req.path === '/health' || req.path === '/.well-known/mcp.json') return next();
+      if (req.path === '/health' || req.path.startsWith('/.well-known/')) return next();
+
+      const unauthorized = (message) => {
+        res.set('WWW-Authenticate', `Bearer resource_metadata="${this.resourceMetadataUrl}"`);
+        return res.status(401).json({ jsonrpc: '2.0', error: { code: -32000, message } });
+      };
 
       const authHeader = req.get('Authorization');
       if (!authHeader) {
-        return res.status(401).json({
-          jsonrpc: '2.0',
-          error: { code: -32000, message: 'Authorization header required. Use "Authorization: Bearer <token>" or "Authorization: ApiKey <token>".' }
-        });
+        return unauthorized('Authorization required. Use OAuth (add AgentPlanner as a connector) or "Authorization: ApiKey <token>".');
       }
 
       const parts = authHeader.split(' ');
       if (parts.length !== 2 || !['Bearer', 'ApiKey'].includes(parts[0])) {
-        return res.status(401).json({
-          jsonrpc: '2.0',
-          error: { code: -32000, message: 'Invalid Authorization format. Use "Bearer <token>" or "ApiKey <token>".' }
-        });
+        return unauthorized('Invalid Authorization format. Use "Bearer <token>" or "ApiKey <token>".');
       }
 
-      // Store the raw token for per-session API client creation
-      req.userToken = parts[1];
+      const [scheme, token] = parts;
+
+      // OAuth-issued bearer token → map to the user's AP credential.
+      if (scheme === 'Bearer') {
+        const oauthRec = this.oauthStore.getAccessToken(token);
+        if (oauthRec) {
+          req.userToken = oauthRec.ap.accessToken;
+          req.oauthClientId = oauthRec.clientId;
+          return next();
+        }
+      }
+
+      // Otherwise treat the raw token as an AP credential (JWT or API key).
+      req.userToken = token;
       next();
     });
 
