@@ -54,7 +54,7 @@ AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desi
 - `add_learning` — record a knowledge episode for future recall
 
 **Creation (v1.0):**
-- `form_intention` — create a plan + initial phase/task tree under a goal, atomically. **Declare execution order inline:** give nodes a `ref` and list prerequisites in `depends_on` (refs or titles) to create `blocks` edges in the same call. Returns a `structure` summary and warns `created_without_dependencies` when a multi-task plan has no edges — don't ship a bare hierarchy with no executable ordering.
+- `form_intention` — create a plan + initial phase/task tree under a goal, atomically. **Declare execution order inline:** give nodes a `ref` and list prerequisites in `depends_on` (refs or titles) to create `blocks` edges in the same call. Returns a `structure` summary and warns `created_without_dependencies` when a multi-task plan has no edges — don't ship a bare hierarchy with no executable ordering. Every plan it creates is provenance-stamped (`created_by: agent-planner-mcp@<version>`) for version-drift diagnosis.
 - `extend_intention` — add children under an existing phase or task (lightweight, no decision-queue gate)
 - `propose_research_chain` — Research → Plan → Implement triple with two blocking edges, in one call
 
