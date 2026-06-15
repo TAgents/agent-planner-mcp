@@ -367,7 +367,7 @@ async function updateTaskHandler(args, apiClient) {
   if (log_message) {
     const logType = args.log_type || STATUS_TO_LOG_TYPE[status] || 'progress';
     try {
-      const log = await apiClient.logs.addLog(planId, task_id, {
+      const log = await apiClient.logs.addLogEntry(planId, task_id, {
         content: log_message,
         log_type: logType,
       });
@@ -617,7 +617,7 @@ async function releaseTaskHandler(args, apiClient) {
   let logId = null;
   if (message) {
     try {
-      const log = await apiClient.logs.addLog(planId, task_id, { content: message, log_type: 'progress' });
+      const log = await apiClient.logs.addLogEntry(planId, task_id, { content: message, log_type: 'progress' });
       logId = log?.id || log?.log?.id;
     } catch {}
   }
