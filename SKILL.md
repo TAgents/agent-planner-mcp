@@ -59,6 +59,7 @@ AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desi
 - `propose_research_chain` — Research → Plan → Implement triple with two blocking edges, in one call
 
 **Structural mutation (v1.0):**
+- `list_plans` — list plans (filter by status / visibility / workspace)
 - `update_plan` — edit any plan property (title, description, status, visibility, metadata)
 - `update_node` — edit any node property except status (status routes through `update_task`)
 - `move_node` — reparent within the same plan; cycle-safe
@@ -137,6 +138,8 @@ claim_next_task({ scope: { plan_id }, dry_run: true })
 // Then claim for real:
 claim_next_task({ scope: { plan_id } })  // dry_run defaults to false
 ```
+
+**Fails closed.** When nothing is claimable, `claim_next_task` never hands back a dependency-blind task — it returns a structured no-work result whose `reason` distinguishes `no_work_in_scope` (nothing left to do) from `blocked_on_dep` (work remains, but every remaining task is blocked on an incomplete dependency). Check `reason` before treating an empty result as "done."
 
 ### Proposing subtasks for human approval (v0.9.1+)
 

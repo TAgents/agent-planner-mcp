@@ -49,6 +49,7 @@ get_started()
 ### Intentions — structural mutation (v1.0)
 | Tool | When |
 |---|---|
+| `list_plans` | List plans (filter by status / visibility / workspace) |
 | `update_plan` | Edit plan title/description/status/visibility/metadata |
 | `update_node` | Edit any node property except status |
 | `move_node` | Reparent within plan; cycle-safe |
@@ -148,7 +149,7 @@ Never use `add_learning(entry_type='decision')` to fake a decision queue. `queue
 ## Atomic patterns to remember
 
 - `update_task` does status + log + claim release + learning in one call. Don't decompose.
-- `claim_next_task` does suggest + claim + context. Don't decompose.
+- `claim_next_task` does suggest + claim + context. Don't decompose. Fails closed — an empty result is structured: `reason: no_work_in_scope` (nothing left) vs `blocked_on_dep` (work remains but all of it is dependency-blocked). Don't treat empty as "done" without checking `reason`.
 - `briefing` does goals + decisions + tasks + activity + recommendation. Don't decompose.
 - `form_intention` creates plan + tree atomically. Don't trickle node-by-node.
 - `share_plan` does visibility + add + remove in one call. Don't fan out.
