@@ -1,9 +1,10 @@
 /**
  * BDI desires — goal management.
  *
- * 3 tools: list_goals (with health rollup), update_goal (atomic, subsumes
- * link/unlink and achiever changes), derive_subgoal (propose a sub-goal
- * under an existing parent; mandatory parent — top-level goals stay UI-only).
+ * 4 tools: list_goals (with health rollup), update_goal (atomic, subsumes
+ * link/unlink and achiever changes), create_goal (new top-level goal), and
+ * derive_subgoal (a sub-goal under an existing parent). Agents create goals
+ * directly — no UI round-trip and no forced approval gate.
  */
 
 const { asOf, formatResponse, errorResponse, safeArray } = require('./_shared');
@@ -162,8 +163,8 @@ async function updateGoalHandler(args, apiClient) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// derive_subgoal — propose a sub-goal under an existing parent.
-// Top-level goals stay UI-only (strategic direction is human-set).
+// derive_subgoal — create a sub-goal under an existing parent. For a new
+// top-level goal use create_goal.
 // ─────────────────────────────────────────────────────────────────────────
 
 const VALID_GOAL_TYPES = ['outcome', 'constraint', 'metric', 'principle'];
@@ -172,11 +173,10 @@ const VALID_STATUSES = ['draft', 'active', 'achieved', 'paused', 'abandoned', 'a
 const deriveSubgoalDefinition = {
   name: 'derive_subgoal',
   description:
-    "Propose a sub-goal under an existing parent goal. parent_goal_id is " +
-    "mandatory — agents cannot create top-level goals (strategic direction is " +
-    "human-set). Defaults to status='active' for human-directed creation; pass " +
-    "status='draft' for autonomous loops so a human can review before promotion. " +
-    "Drafts surface in the dashboard pending queue.",
+    "Create a sub-goal under an existing parent goal (parent_goal_id required). " +
+    "For a new top-level goal, use create_goal instead. Defaults to " +
+    "status='active'; pass status='draft' for autonomous loops so a human can " +
+    "review before promotion. Drafts surface in the dashboard pending queue.",
   inputSchema: {
     type: 'object',
     properties: {
@@ -260,11 +260,85 @@ async function deriveSubgoalHandler(args, apiClient) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// create_goal — create a top-level goal directly (no parent).
+// Agents create goals when a human asks them to; there is no UI round-trip and
+// no forced approval gate. Defaults to status='active'.
+// ─────────────────────────────────────────────────────────────────────────
+
+const createGoalDefinition = {
+  name: 'create_goal',
+  description:
+    "Create a new top-level goal (no parent). Use this when a human asks you to " +
+    "set up a goal — agents create goals directly, no UI step required. For a " +
+    "goal that contributes to an existing one, use derive_subgoal instead. " +
+    "Defaults to status='active' (live immediately); pass status='draft' only " +
+    "if you want it to sit in the pending queue for review. Lands in the user's " +
+    "active organization's default workspace unless workspace_id is given.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: "The goal statement." },
+      description: { type: 'string', description: "What the goal means / context." },
+      type: {
+        type: 'string',
+        enum: VALID_GOAL_TYPES,
+        default: 'outcome',
+        description: "outcome (end state), metric (quantitative target), constraint (must-not-violate), principle (durable invariant).",
+      },
+      status: {
+        type: 'string',
+        enum: VALID_STATUSES,
+        default: 'active',
+        description: "Default 'active' (live). Pass 'draft' to propose without activating.",
+      },
+      success_criteria: {
+        type: 'array',
+        items: { type: 'string' },
+        description: "Concrete, observable conditions that mark this goal achieved.",
+      },
+      priority: { type: 'integer', minimum: 0, maximum: 10, default: 0 },
+      workspace_id: { type: 'string', description: "Optional. Target workspace; defaults to the active org's default workspace." },
+    },
+    required: ['title'],
+  },
+};
+
+async function createGoalHandler(args, apiClient) {
+  const { title, description, type = 'outcome', status = 'active', success_criteria, priority, workspace_id } = args;
+
+  const payload = { title, type, status };
+  if (description) payload.description = description;
+  if (success_criteria) payload.successCriteria = { criteria: success_criteria };
+  if (typeof priority === 'number') payload.priority = priority;
+  if (workspace_id) payload.workspaceId = workspace_id;
+
+  let goal;
+  try {
+    goal = await apiClient.goals.create(payload);
+  } catch (err) {
+    const upstream = err.response?.data?.error || err.message;
+    return errorResponse('create_failed', `Failed to create goal: ${upstream}`);
+  }
+
+  return formatResponse({
+    as_of: asOf(),
+    goal_id: goal.id,
+    title: goal.title,
+    status: goal.status,
+    is_draft: goal.status === 'draft',
+    next_step: goal.status === 'draft'
+      ? "Goal created as draft. Promote via update_goal({status: 'active'}) once ready."
+      : "Goal is active. Add sub-goals with derive_subgoal, or link plans via update_goal({add_linked_plans: [...]}).",
+  });
+}
+
 module.exports = {
-  definitions: [listGoalsDefinition, updateGoalDefinition, deriveSubgoalDefinition],
+  definitions: [listGoalsDefinition, updateGoalDefinition, createGoalDefinition, deriveSubgoalDefinition],
   handlers: {
     list_goals: listGoalsHandler,
     update_goal: updateGoalHandler,
+    create_goal: createGoalHandler,
     derive_subgoal: deriveSubgoalHandler,
   },
 };

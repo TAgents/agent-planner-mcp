@@ -255,7 +255,8 @@ Add the same JSON config to your Cline MCP settings in VS Code.
 ### Desires (goals)
 - `list_goals` — goals with health rollup
 - `update_goal` — atomic goal update (subsumes link/unlink/achievers)
-- `derive_subgoal` *(v1.0)* — propose a sub-goal under an existing parent
+- `create_goal` — create a new top-level goal (no parent)
+- `derive_subgoal` *(v1.0)* — create a sub-goal under an existing parent
 
 ### Intentions — execution
 - `claim_next_task` — pick + claim + load context (one call)

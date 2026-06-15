@@ -165,6 +165,56 @@ describe('derive_subgoal tool', () => {
   });
 });
 
+describe('create_goal tool — top-level goal creation', () => {
+  function makeClient(createResult = { id: NEW_GOAL_ID, title: 'Ship v2', status: 'active' }) {
+    return { goals: { create: jest.fn().mockResolvedValue(createResult) } };
+  }
+
+  it('exports the tool, requiring only title (no parent)', () => {
+    const tool = desires.definitions.find((d) => d.name === 'create_goal');
+    expect(tool).toBeDefined();
+    expect(tool.inputSchema.required).toEqual(['title']);
+    expect(tool.inputSchema.properties.parent_goal_id).toBeUndefined();
+  });
+
+  it('creates a top-level goal (active, no parentGoalId) by default', async () => {
+    const apiClient = makeClient();
+    const result = await desires.handlers.create_goal({ title: 'Ship v2' }, apiClient);
+
+    const payload = apiClient.goals.create.mock.calls[0][0];
+    expect(payload).toEqual(expect.objectContaining({ title: 'Ship v2', type: 'outcome', status: 'active' }));
+    expect(payload).not.toHaveProperty('parentGoalId');
+    const body = parseResponse(result);
+    expect(body.goal_id).toBe(NEW_GOAL_ID);
+    expect(body.is_draft).toBe(false);
+  });
+
+  it('accepts status=draft when proposing without direction', async () => {
+    const apiClient = makeClient({ id: NEW_GOAL_ID, title: 'Maybe', status: 'draft' });
+    const result = await desires.handlers.create_goal({ title: 'Maybe', status: 'draft' }, apiClient);
+    expect(apiClient.goals.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'draft' }));
+    expect(parseResponse(result).is_draft).toBe(true);
+  });
+
+  it('wraps success_criteria and forwards workspace_id', async () => {
+    const apiClient = makeClient();
+    await desires.handlers.create_goal(
+      { title: 'G', success_criteria: ['Launched'], workspace_id: 'ws-1' },
+      apiClient,
+    );
+    expect(apiClient.goals.create).toHaveBeenCalledWith(
+      expect.objectContaining({ successCriteria: { criteria: ['Launched'] }, workspaceId: 'ws-1' }),
+    );
+  });
+
+  it('surfaces upstream create failures', async () => {
+    const apiClient = { goals: { create: jest.fn().mockRejectedValue({ response: { data: { error: 'db down' } } }) } };
+    const result = await desires.handlers.create_goal({ title: 'G' }, apiClient);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/db down/);
+  });
+});
+
 describe('update_goal tool — committed vocabulary (ring-3 alignment)', () => {
   function parse(resp) { return JSON.parse(resp.content[0].text); }
 
