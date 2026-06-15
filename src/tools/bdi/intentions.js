@@ -482,8 +482,8 @@ async function claimNextTaskHandler(args, apiClient) {
   if (!fresh) {
     try {
       const myTasks = await apiClient.users.getMyTasks({ plan_id });
-      const tasks = (myTasks.tasks || myTasks || []).filter((t) => t.status === 'in_progress');
-      if (plan_id) tasks.filter((t) => t.plan_id === plan_id);
+      let tasks = (myTasks.tasks || myTasks || []).filter((t) => t.status === 'in_progress');
+      if (plan_id) tasks = tasks.filter((t) => t.plan_id === plan_id);
       if (tasks[0]) {
         chosen = tasks[0];
         source = 'resume_in_progress';
@@ -491,20 +491,49 @@ async function claimNextTaskHandler(args, apiClient) {
     } catch {}
   }
 
-  // 2. suggest_next_tasks
+  // 2. Dependency-aware suggestion via /context/suggest — the real endpoint
+  //    (only ready, unclaimed tasks, in plan order). Track reachability so we
+  //    can fail closed below: an empty result from a reachable endpoint means
+  //    remaining work is dep-blocked, NOT "grab any not_started task".
+  let suggestReachable = false;
   if (!chosen && plan_id) {
     try {
       const params = new URLSearchParams({ plan_id, limit: '1' });
-      const r = await apiClient.axiosInstance.get(`/plans/${plan_id}/suggest-next-tasks?${params}`);
-      const suggested = (r.data?.tasks || r.data || [])[0];
+      const r = await apiClient.axiosInstance.get(`/context/suggest?${params}`);
+      suggestReachable = true;
+      const suggested = (r.data?.suggestions || r.data?.tasks || r.data || [])[0];
       if (suggested) {
         chosen = suggested;
         source = 'suggest_next_tasks';
       }
-    } catch {}
+    } catch {
+      // Endpoint unreachable (pre-suggest self-hosted API). Leave
+      // suggestReachable=false so the last-resort blind pick can run.
+    }
   }
 
-  // 3. my_tasks fallback (first not_started)
+  // 3. Fail-closed gate. When the dependency-aware endpoint is reachable but
+  //    returned nothing, all remaining not_started work is blocked on
+  //    incomplete dependencies — mirror the backend and refuse to hand out a
+  //    dep-blind task. Only the truly-unreachable case falls through to (4).
+  if (!chosen && plan_id && suggestReachable) {
+    let hasNotStarted = false;
+    try {
+      const myTasks = await apiClient.users.getMyTasks({ plan_id });
+      hasNotStarted = (myTasks.tasks || myTasks || []).some((t) => t.status === 'not_started');
+    } catch {}
+    return errorResponse(
+      'not_found',
+      hasNotStarted
+        ? 'All remaining tasks are blocked on incomplete dependencies'
+        : 'No actionable task found in scope',
+      { reason: hasNotStarted ? 'blocked_on_dep' : 'no_work_in_scope' },
+    );
+  }
+
+  // 4. Last-resort blind fallback — ONLY when the dep-aware endpoint could not
+  //    be reached at all (ancient self-hosted API with neither work-sessions
+  //    nor /context/suggest). Against any current backend this never runs.
   if (!chosen) {
     try {
       const myTasks = await apiClient.users.getMyTasks({ plan_id });
