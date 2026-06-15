@@ -42,7 +42,7 @@ get_started()
 ### Intentions — creation (v1.0)
 | Tool | When |
 |---|---|
-| `form_intention` | Create plan + initial tree under a goal, atomically |
+| `form_intention` | Create plan + initial tree under a goal, atomically. Declare order inline with `ref`/`depends_on` (→ `blocks` edges); warns `created_without_dependencies` |
 | `extend_intention` | Add children under existing parent (lightweight, no queue) |
 | `propose_research_chain` | RPI triple with 2 blocking edges in one call |
 
@@ -151,7 +151,7 @@ Never use `add_learning(entry_type='decision')` to fake a decision queue. `queue
 - `update_task` does status + log + claim release + learning in one call. Don't decompose.
 - `claim_next_task` does suggest + claim + context. Don't decompose. Fails closed — an empty result is structured: `reason: no_work_in_scope` (nothing left) vs `blocked_on_dep` (work remains but all of it is dependency-blocked). Don't treat empty as "done" without checking `reason`.
 - `briefing` does goals + decisions + tasks + activity + recommendation. Don't decompose.
-- `form_intention` creates plan + tree atomically. Don't trickle node-by-node.
+- `form_intention` creates plan + tree atomically — and declares execution order inline via `ref`/`depends_on` (don't ship a bare hierarchy with no edges). Don't trickle node-by-node.
 - `share_plan` does visibility + add + remove in one call. Don't fan out.
 
 ## Output discipline

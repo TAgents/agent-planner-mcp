@@ -54,7 +54,7 @@ AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desi
 - `add_learning` — record a knowledge episode for future recall
 
 **Creation (v1.0):**
-- `form_intention` — create a plan + initial phase/task tree under a goal, atomically
+- `form_intention` — create a plan + initial phase/task tree under a goal, atomically. **Declare execution order inline:** give nodes a `ref` and list prerequisites in `depends_on` (refs or titles) to create `blocks` edges in the same call. Returns a `structure` summary and warns `created_without_dependencies` when a multi-task plan has no edges — don't ship a bare hierarchy with no executable ordering.
 - `extend_intention` — add children under an existing phase or task (lightweight, no decision-queue gate)
 - `propose_research_chain` — Research → Plan → Implement triple with two blocking edges, in one call
 
@@ -86,7 +86,7 @@ A Workspace is a folder under an Organization that owns goals + plans — a grou
 
 ### Utility
 
-- `get_started` — dynamic reference; call this if you're new to AgentPlanner
+- `get_started` — dynamic reference; call this if you're new to AgentPlanner. Reports `mcp_version` so you can self-report your build (diagnose version drift across OpenClaw / Claude Code / local checkouts).
 
 ## Canonical workflows
 
@@ -179,11 +179,17 @@ form_intention({
   title: 'Ship new auth flow',
   rationale: 'User-requested plan to migrate auth to passkeys',
   tree: [
-    { node_type: 'phase', title: 'Discovery', children: [...] },
-    { node_type: 'phase', title: 'Implementation', children: [...] },
+    { node_type: 'phase', title: 'Discovery', children: [
+      { ref: 'research', title: 'Research passkey libraries', task_mode: 'research' },
+    ]},
+    { node_type: 'phase', title: 'Implementation', children: [
+      { title: 'Implement passkey flow', task_mode: 'implement', depends_on: ['research'] },
+    ]},
   ]
 })
-// Plan lands as active. No approval needed — user already approved by asking.
+// Active, with a `blocks` edge (research → implement) created inline from depends_on.
+// Response carries a `structure` summary; a multi-task plan with zero edges would
+// return created_without_dependencies + a warning instead.
 ```
 
 ```
