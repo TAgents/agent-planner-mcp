@@ -40,7 +40,8 @@ AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desi
 
 - `list_goals` — goals with health rollup (`{ on_track, at_risk, stale, total }`)
 - `update_goal` — atomic goal update; subsumes link/unlink + achiever changes
-- `derive_subgoal` *(v1.0)* — propose a sub-goal under an existing parent. Top-level goal creation stays UI-only.
+- `create_goal` — create a new top-level goal (no parent). Agents create goals directly when asked — no UI step. Defaults to `status='active'`.
+- `derive_subgoal` *(v1.0)* — create a sub-goal under an existing parent (use `create_goal` for top-level).
 
 ### Intentions — what am I committing to?
 

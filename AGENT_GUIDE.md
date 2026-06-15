@@ -26,7 +26,8 @@ get_started()
 |---|---|
 | `list_goals` | Goal list with health summary |
 | `update_goal` | Atomic goal change (subsumes link/unlink/achievers) |
-| `derive_subgoal` | Propose a sub-goal under an existing parent (top-level goals stay UI-only) |
+| `create_goal` | Create a new top-level goal (no parent) — agents create goals directly when asked |
+| `derive_subgoal` | Create a sub-goal under an existing parent |
 
 ### Intentions — execution
 | Tool | When |
@@ -139,7 +140,8 @@ form_intention({goal_id: <new>, title, rationale, status: 'draft', tree: [...]})
 When in doubt between act and queue:
 - Reversible local action (status, log, learning, edit, decompose) → **act** via `update_task`, `update_node`, `extend_intention`, `add_learning`
 - External cost, public publish, strategy change, customer comm → **queue** via `queue_decision`
-- Whole new direction or sub-goal you weren't asked for → propose as **draft** via `form_intention` / `derive_subgoal` with `status='draft'`
+- A goal a human asked you to set up → just **create** it via `create_goal` (active) — no UI step, no approval gate
+- A whole new direction or sub-goal you weren't asked for → propose as **draft** via `create_goal` / `form_intention` / `derive_subgoal` with `status='draft'`
 
 Never use `add_learning(entry_type='decision')` to fake a decision queue. `queue_decision` is the real tool.
 
