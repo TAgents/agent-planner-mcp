@@ -52,11 +52,27 @@ connectors discover the AS automatically.
    container (defaults to `https://agentplanner.io`; must be the public origin
    over https). `API_URL` must point at the AP REST API for the consent login.
 
-3. **Token persistence (known limitation).** The token/client store is
-   in-memory — a container restart invalidates issued tokens and registered
-   clients, so connected users must reconnect. Move the store to Redis/Postgres
-   before relying on it for many users (the `OAuthStore` interface is
-   intentionally small to make this swap easy).
+3. **Shared internal secret.** Set the SAME `MCP_INTERNAL_SECRET` on BOTH the
+   backend (`agent-planner`) and the MCP container. The MCP OAuth server has no
+   database — it persists DCR clients + PKCE codes via the backend's
+   `/internal/oauth/*` endpoints, which are guarded by this secret. If it's
+   unset, those endpoints return 503 and OAuth registration fails.
+
+4. **Keep `/internal/*` private.** nginx must NOT expose `/internal/oauth/*`
+   publicly — it's server-to-server only (the shared secret is defense-in-depth,
+   not the only line).
+
+## Persistence
+
+- **Postgres, no Redis.** DCR clients (`oauth_clients`) and one-time PKCE codes
+  (`oauth_auth_codes`, ~5 min TTL) live in the backend's existing Postgres
+  (migration `0023_oauth.sql`).
+- **No token table.** The OAuth `access_token` IS the user's AP JWT, so `/mcp`
+  validates it statelessly and a container restart never drops authenticated
+  connections. OAuth refresh maps to the backend `/auth/refresh`.
+- **Hardening follow-ups:** the auth-code row holds a short-lived AP JWT (≤5 min,
+  deleted on use) — consider encrypting it at rest or minting at consume; and
+  bind refresh tokens to `client_id`.
 
 ## Flow
 

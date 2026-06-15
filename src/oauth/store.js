@@ -1,97 +1,96 @@
 /**
- * OAuth state store for the hosted MCP authorization server.
+ * OAuth state store — thin HTTP client over the AgentPlanner backend's
+ * secret-guarded /internal/oauth endpoints. The MCP server has no database of
+ * its own; DCR clients and one-time PKCE codes live in the backend's Postgres.
  *
- * Holds registered clients (Dynamic Client Registration), short-lived
- * authorization codes, and issued access/refresh tokens. Each token maps back
- * to the user's AgentPlanner credential (AP JWT) so /mcp can act as that user.
- *
- * MVP: in-memory Maps. KNOWN LIMITATION — a process restart invalidates all
- * issued tokens and registered clients, so connected clients must re-auth.
- * The interface is deliberately small so this can be swapped for Redis/Postgres
- * before heavy multi-user load (see the OAuth plan).
+ * There is no token storage: the OAuth access_token is the user's AP JWT, so a
+ * restart never drops authenticated connections.
  */
-const crypto = require('crypto');
+const axios = require('axios');
 
-const rid = (bytes = 32) => crypto.randomBytes(bytes).toString('hex');
+// Map a backend (camelCase) client row → the SDK's OAuthClientInformationFull
+// (snake_case) shape that mcpAuthRouter / the provider expect.
+function toSdkClient(row) {
+  if (!row) return undefined;
+  return {
+    client_id: row.clientId,
+    ...(row.clientSecret ? { client_secret: row.clientSecret, client_secret_expires_at: 0 } : {}),
+    client_name: row.clientName || undefined,
+    redirect_uris: row.redirectUris || [],
+    grant_types: row.grantTypes || [],
+    response_types: row.responseTypes || [],
+    scope: row.scope || undefined,
+    token_endpoint_auth_method: row.tokenEndpointAuthMethod || 'client_secret_basic',
+    client_id_issued_at: row.clientIdIssuedAt ? Math.floor(new Date(row.clientIdIssuedAt).getTime() / 1000) : undefined,
+  };
+}
 
-class OAuthStore {
-  constructor({ codeTtlMs = 5 * 60 * 1000, accessTtlMs = 60 * 60 * 1000 } = {}) {
-    this.codeTtlMs = codeTtlMs;
-    this.accessTtlMs = accessTtlMs;
-    this.clients = new Map();       // client_id → OAuthClientInformationFull
-    this.codes = new Map();         // code → { clientId, codeChallenge, redirectUri, scopes, ap, expiresAt }
-    this.accessTokens = new Map();  // access_token → { clientId, scopes, ap, expiresAt }
-    this.refreshTokens = new Map(); // refresh_token → { clientId, scopes, ap }
-  }
-
-  // ── Clients (DCR) ────────────────────────────────────────────────────────
-  getClient(clientId) {
-    return this.clients.get(clientId);
-  }
-
-  saveClient(client) {
-    this.clients.set(client.client_id, client);
-    return client;
-  }
-
-  // ── Authorization codes ──────────────────────────────────────────────────
-  // `ap` is { accessToken, refreshToken, userId } — the AgentPlanner credential
-  // captured during consent.
-  createCode({ clientId, codeChallenge, redirectUri, scopes, ap }) {
-    const code = rid();
-    this.codes.set(code, {
-      clientId, codeChallenge, redirectUri, scopes, ap,
-      expiresAt: Date.now() + this.codeTtlMs,
+class BackendOAuthStore {
+  constructor({ apiUrl, internalSecret }) {
+    this.base = `${(apiUrl || 'http://localhost:3000').replace(/\/$/, '')}/internal/oauth`;
+    this.http = axios.create({
+      timeout: 10000,
+      headers: { 'X-Internal-Token': internalSecret || '' },
     });
-    return code;
   }
 
-  // One-time: consume returns the record and deletes it.
-  consumeCode(code) {
-    const rec = this.codes.get(code);
-    if (!rec) return null;
-    this.codes.delete(code);
-    if (rec.expiresAt < Date.now()) return null;
-    return rec;
-  }
-
-  // ── Tokens ────────────────────────────────────────────────────────────────
-  issueTokens({ clientId, scopes, ap }) {
-    const access_token = rid();
-    const refresh_token = rid();
-    const expiresAt = Date.now() + this.accessTtlMs;
-    this.accessTokens.set(access_token, { clientId, scopes, ap, expiresAt });
-    this.refreshTokens.set(refresh_token, { clientId, scopes, ap });
-    return {
-      access_token,
-      token_type: 'Bearer',
-      expires_in: Math.floor(this.accessTtlMs / 1000),
-      refresh_token,
-      scope: scopes.join(' ') || undefined,
-    };
-  }
-
-  getAccessToken(token) {
-    const rec = this.accessTokens.get(token);
-    if (!rec) return null;
-    if (rec.expiresAt < Date.now()) {
-      this.accessTokens.delete(token);
-      return null;
+  async getClient(clientId) {
+    try {
+      const { data } = await this.http.get(`${this.base}/clients/${encodeURIComponent(clientId)}`);
+      return toSdkClient(data);
+    } catch (err) {
+      if (err.response?.status === 404) return undefined;
+      throw err;
     }
-    return rec;
   }
 
-  consumeRefreshToken(token) {
-    const rec = this.refreshTokens.get(token);
-    if (!rec) return null;
-    this.refreshTokens.delete(token); // rotate
-    return rec;
+  // SDK passes the client minus client_id (snake_case). Backend mints id/secret.
+  async registerClient(client) {
+    const { data } = await this.http.post(`${this.base}/clients`, client);
+    return toSdkClient(data);
   }
 
-  revoke(token) {
-    this.accessTokens.delete(token);
-    this.refreshTokens.delete(token);
+  // `ap` = { accessToken, refreshToken, userId } captured at consent.
+  async createCode({ clientId, codeChallenge, redirectUri, scopes, ap }) {
+    const { data } = await this.http.post(`${this.base}/codes`, {
+      client_id: clientId,
+      code_challenge: codeChallenge,
+      redirect_uri: redirectUri,
+      scopes: scopes || [],
+      user_id: ap?.userId || null,
+      ap_access_token: ap?.accessToken,
+      ap_refresh_token: ap?.refreshToken || null,
+    });
+    return data.code;
+  }
+
+  // Peek (no consume) for the PKCE challenge lookup.
+  async getCode(code) {
+    try {
+      const { data } = await this.http.get(`${this.base}/codes/${encodeURIComponent(code)}`);
+      return { clientId: data.client_id, codeChallenge: data.code_challenge, redirectUri: data.redirect_uri };
+    } catch (err) {
+      if (err.response?.status === 404) return null;
+      throw err;
+    }
+  }
+
+  // One-time consume → returns the bound AP credential.
+  async consumeCode(code) {
+    try {
+      const { data } = await this.http.post(`${this.base}/codes/${encodeURIComponent(code)}/consume`);
+      return {
+        clientId: data.client_id,
+        codeChallenge: data.code_challenge,
+        redirectUri: data.redirect_uri,
+        scopes: data.scopes || [],
+        ap: { accessToken: data.ap_access_token, refreshToken: data.ap_refresh_token, userId: data.user_id },
+      };
+    } catch (err) {
+      if (err.response?.status === 404) return null;
+      throw err;
+    }
   }
 }
 
-module.exports = { OAuthStore, rid };
+module.exports = { BackendOAuthStore, toSdkClient };

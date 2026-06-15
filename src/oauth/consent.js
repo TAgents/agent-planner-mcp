@@ -58,7 +58,7 @@ function makeConsentHandler({ store, apiUrl }) {
       resource: b.resource,
     };
 
-    const client = store.getClient(b.client_id);
+    const client = await store.getClient(b.client_id);
     if (!client) {
       return res.status(400).send('Unknown client.');
     }
@@ -81,7 +81,7 @@ function makeConsentHandler({ store, apiUrl }) {
       return res.status(200).send(renderConsentPage(params, { clientName: client.client_name, error: 'Sign-in failed. Please try again.' }));
     }
 
-    const code = store.createCode({
+    const code = await store.createCode({
       clientId: b.client_id,
       codeChallenge: b.code_challenge,
       redirectUri: b.redirect_uri,

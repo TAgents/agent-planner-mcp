@@ -19,7 +19,7 @@ const { createApiClient } = require('./api-client');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } = require('@modelcontextprotocol/sdk/server/auth/router.js');
 const { version } = require('../package.json');
-const { OAuthStore } = require('./oauth/store');
+const { BackendOAuthStore } = require('./oauth/store');
 const { ApOAuthProvider } = require('./oauth/provider');
 const { makeConsentHandler } = require('./oauth/consent');
 require('dotenv').config();
@@ -46,8 +46,8 @@ class MCPHTTPServer {
     // The issuer/public origin is where claude.ai reaches the AS endpoints.
     this.publicBaseUrl = (options.publicBaseUrl || process.env.OAUTH_ISSUER_URL || process.env.PUBLIC_URL || 'https://agentplanner.io').replace(/\/$/, '');
     this.apiUrl = options.apiUrl || process.env.API_URL || 'http://localhost:3000';
-    this.oauthStore = new OAuthStore();
-    this.oauthProvider = new ApOAuthProvider({ store: this.oauthStore });
+    this.oauthStore = new BackendOAuthStore({ apiUrl: this.apiUrl, internalSecret: process.env.MCP_INTERNAL_SECRET });
+    this.oauthProvider = new ApOAuthProvider({ store: this.oauthStore, apiUrl: this.apiUrl });
     this.resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(new URL(`${this.publicBaseUrl}/mcp`));
 
     // Create Express app
@@ -134,19 +134,12 @@ class MCPHTTPServer {
         return unauthorized('Invalid Authorization format. Use "Bearer <token>" or "ApiKey <token>".');
       }
 
-      const [scheme, token] = parts;
+      const [, token] = parts;
 
-      // OAuth-issued bearer token → map to the user's AP credential.
-      if (scheme === 'Bearer') {
-        const oauthRec = this.oauthStore.getAccessToken(token);
-        if (oauthRec) {
-          req.userToken = oauthRec.ap.accessToken;
-          req.oauthClientId = oauthRec.clientId;
-          return next();
-        }
-      }
-
-      // Otherwise treat the raw token as an AP credential (JWT or API key).
+      // The token is an AP credential: an API key, a raw AP JWT, or an
+      // OAuth-issued access token (which IS an AP JWT — see oauth/provider.js).
+      // All three are passed straight to the per-session API client; the AP API
+      // validates JWTs/keys. No separate OAuth token store to consult.
       req.userToken = token;
       next();
     });
