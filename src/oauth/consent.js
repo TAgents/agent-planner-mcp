@@ -40,7 +40,7 @@ function renderConsentPage(params, { clientName = 'an application', error = null
     <input id="password" name="password" type="password" autocomplete="current-password" required>
     <button type="submit">Sign in &amp; authorize</button>
   </form>
-  <div class="grant">Signing in authorizes this connection only. You can revoke it anytime in AgentPlanner settings.</div>
+  <div class="grant">Signing in authorizes this connection only. You can disconnect it anytime from your Claude connector settings.</div>
 </div></body></html>`;
 }
 
@@ -86,7 +86,7 @@ function makeConsentHandler({ store, apiUrl }) {
       codeChallenge: b.code_challenge,
       redirectUri: b.redirect_uri,
       scopes: (b.scope || '').split(' ').filter(Boolean),
-      ap: { accessToken: session.access_token, refreshToken: session.refresh_token, userId },
+      userId,
     });
 
     const url = new URL(b.redirect_uri);

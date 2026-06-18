@@ -50,16 +50,14 @@ class BackendOAuthStore {
     return toSdkClient(data);
   }
 
-  // `ap` = { accessToken, refreshToken, userId } captured at consent.
-  async createCode({ clientId, codeChallenge, redirectUri, scopes, ap }) {
+  // Stores the code bound to the authenticated user (no AP credential at rest).
+  async createCode({ clientId, codeChallenge, redirectUri, scopes, userId }) {
     const { data } = await this.http.post(`${this.base}/codes`, {
       client_id: clientId,
       code_challenge: codeChallenge,
       redirect_uri: redirectUri,
       scopes: scopes || [],
-      user_id: ap?.userId || null,
-      ap_access_token: ap?.accessToken,
-      ap_refresh_token: ap?.refreshToken || null,
+      user_id: userId || null,
     });
     return data.code;
   }
@@ -75,21 +73,38 @@ class BackendOAuthStore {
     }
   }
 
-  // One-time consume → returns the bound AP credential.
-  async consumeCode(code) {
+  // One-time consume → backend validates client/redirect, mints + returns the
+  // OAuth token set (access JWT + opaque refresh). Null if the code is invalid.
+  async consumeCode(code, { clientId, redirectUri } = {}) {
     try {
-      const { data } = await this.http.post(`${this.base}/codes/${encodeURIComponent(code)}/consume`);
-      return {
-        clientId: data.client_id,
-        codeChallenge: data.code_challenge,
-        redirectUri: data.redirect_uri,
-        scopes: data.scopes || [],
-        ap: { accessToken: data.ap_access_token, refreshToken: data.ap_refresh_token, userId: data.user_id },
-      };
+      const { data } = await this.http.post(`${this.base}/codes/${encodeURIComponent(code)}/consume`, {
+        client_id: clientId,
+        redirect_uri: redirectUri,
+      });
+      return data; // { access_token, token_type, expires_in, refresh_token, scope }
     } catch (err) {
-      if (err.response?.status === 404) return null;
+      if (err.response?.status === 404 || err.response?.status === 400) return null;
       throw err;
     }
+  }
+
+  // Rotate a refresh token → new token set (bound to client_id).
+  async refresh(refreshToken, clientId) {
+    try {
+      const { data } = await this.http.post(`${this.base}/refresh`, {
+        refresh_token: refreshToken,
+        client_id: clientId,
+      });
+      return data;
+    } catch (err) {
+      if (err.response?.status === 400) return null;
+      throw err;
+    }
+  }
+
+  // Revoke a refresh token (RFC 7009) — kills the connection.
+  async revoke(token) {
+    await this.http.post(`${this.base}/revoke`, { token });
   }
 }
 

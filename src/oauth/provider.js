@@ -5,20 +5,17 @@
  * /token, /revoke, PKCE validation). Persistence is delegated to the backend
  * via BackendOAuthStore.
  *
- * Token model: the OAuth access_token IS the user's AgentPlanner JWT (captured
- * at consent). So /mcp validates it statelessly, restarts don't log anyone out,
- * and there is no token table. Refresh maps to the AP /auth/refresh flow.
+ * Token model: the OAuth access_token is a short-lived (1h) AgentPlanner JWT
+ * minted from the consenting user (validated statelessly on /mcp). The refresh
+ * token is opaque, revocable, and bound to the client — backed by the backend's
+ * oauth_refresh_tokens table. Revoking it kills the connection within the
+ * access-token TTL. No AP credential is stored at rest.
  */
-const axios = require('axios');
 const { renderConsentPage } = require('./consent');
 
-// AP JWTs carry their own exp; this is the advertised OAuth lifetime hint.
-const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
-
 class ApOAuthProvider {
-  constructor({ store, apiUrl }) {
+  constructor({ store }) {
     this._store = store;
-    this._apiUrl = (apiUrl || 'http://localhost:3000').replace(/\/$/, '');
 
     this.clientsStore = {
       getClient: (clientId) => this._store.getClient(clientId),
@@ -48,41 +45,32 @@ class ApOAuthProvider {
     return rec.codeChallenge;
   }
 
-  // The issued access/refresh tokens ARE the user's AP JWT + refresh token.
+  // Backend consume validates client/redirect/PKCE-bound code, mints + returns
+  // the token set (short-lived access JWT + opaque, revocable refresh token).
   async exchangeAuthorizationCode(client, authorizationCode, _codeVerifier, redirectUri) {
-    const rec = await this._store.consumeCode(authorizationCode);
-    if (!rec || rec.clientId !== client.client_id) {
+    const tokens = await this._store.consumeCode(authorizationCode, {
+      clientId: client.client_id,
+      redirectUri,
+    });
+    if (!tokens || !tokens.access_token) {
       throw new Error('invalid_grant: authorization code is invalid or expired');
     }
-    if (redirectUri && redirectUri !== rec.redirectUri) {
-      throw new Error('invalid_grant: redirect_uri mismatch');
-    }
-    return {
-      access_token: rec.ap.accessToken,
-      token_type: 'Bearer',
-      expires_in: ACCESS_TOKEN_TTL_SECONDS,
-      refresh_token: rec.ap.refreshToken || undefined,
-      scope: (rec.scopes || []).join(' ') || undefined,
-    };
+    return tokens;
   }
 
-  // OAuth refresh → AP /auth/refresh (the OAuth refresh_token is the AP one).
-  async exchangeRefreshToken(_client, refreshToken, scopes) {
-    let session;
-    try {
-      const { data } = await axios.post(`${this._apiUrl}/auth/refresh`, { refresh_token: refreshToken }, { timeout: 10000 });
-      session = data?.session || data;
-    } catch (err) {
+  // Rotate the opaque refresh token (bound to client_id) for a fresh token set.
+  async exchangeRefreshToken(client, refreshToken, _scopes) {
+    const tokens = await this._store.refresh(refreshToken, client.client_id);
+    if (!tokens || !tokens.access_token) {
       throw new Error('invalid_grant: refresh token is invalid or expired');
     }
-    if (!session?.access_token) throw new Error('invalid_grant: refresh failed');
-    return {
-      access_token: session.access_token,
-      token_type: 'Bearer',
-      expires_in: ACCESS_TOKEN_TTL_SECONDS,
-      refresh_token: session.refresh_token || refreshToken,
-      scope: (scopes || []).join(' ') || undefined,
-    };
+    return tokens;
+  }
+
+  // RFC 7009 revocation — revoke the (opaque) refresh token, killing the
+  // connection. Enables /oauth/revoke so connectors can disconnect.
+  async revokeToken(_client, request) {
+    if (request?.token) await this._store.revoke(request.token);
   }
 
   // Access tokens are AP JWTs; the MCP doesn't hold JWT_SECRET, so this is a
