@@ -10,7 +10,7 @@ const axios = require('axios');
 
 const { BackendOAuthStore, toSdkClient } = require('../src/oauth/store');
 const { ApOAuthProvider } = require('../src/oauth/provider');
-const { makeConsentHandler } = require('../src/oauth/consent');
+const { makeConsentHandler, renderConsentPage } = require('../src/oauth/consent');
 
 function resMock() {
   const res = {};
@@ -126,6 +126,14 @@ describe('ApOAuthProvider', () => {
     const res = resMock();
     await provider.authorize(client, { redirectUri: 'https://claude.ai/cb', codeChallenge: 'C', state: 's', scopes: ['agentplanner'] }, res);
     expect(res.send.mock.calls[0][0]).toMatch(/Connect AgentPlanner/);
+  });
+});
+
+describe('renderConsentPage', () => {
+  it('is client-aware — the disconnect copy names the connecting app, not a hardcoded one', () => {
+    const html = renderConsentPage({ client_id: 'c1' }, { clientName: 'ChatGPT' });
+    expect(html).toMatch(/disconnect <b>ChatGPT<\/b>/);
+    expect(html).not.toMatch(/Claude connector settings/); // no hardcoded vendor
   });
 });
 

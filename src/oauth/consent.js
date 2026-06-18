@@ -40,7 +40,7 @@ function renderConsentPage(params, { clientName = 'an application', error = null
     <input id="password" name="password" type="password" autocomplete="current-password" required>
     <button type="submit">Sign in &amp; authorize</button>
   </form>
-  <div class="grant">Signing in authorizes this connection only. You can disconnect it anytime from your Claude connector settings.</div>
+  <div class="grant">Signing in authorizes this connection only. You can disconnect <b>${esc(clientName)}</b> anytime from its connector settings, or from AgentPlanner → Settings → Connections.</div>
 </div></body></html>`;
 }
 
