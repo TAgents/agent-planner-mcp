@@ -29,11 +29,20 @@ async function getStartedHandler(args) {
       "Each tool answers one whole agentic question and returns an `as_of` timestamp.",
     tools_by_namespace: {
       beliefs: ['briefing', 'list_plans', 'task_context', 'goal_state', 'recall_knowledge', 'search', 'plan_analysis'],
-      desires: ['list_goals', 'update_goal'],
-      intentions: ['claim_next_task', 'update_task', 'release_task', 'queue_decision', 'resolve_decision', 'add_learning'],
+      desires: ['list_goals', 'create_goal', 'update_goal', 'derive_subgoal'],
+      intentions: ['form_intention', 'extend_intention', 'link_intentions', 'propose_research_chain', 'claim_next_task', 'update_task', 'update_node', 'release_task', 'queue_decision', 'resolve_decision', 'add_learning'],
       workspaces: ['list_workspaces', 'create_workspace', 'list_blueprints', 'fork_blueprint', 'save_as_blueprint'],
     },
     recommended_workflows: [
+      {
+        name: 'Set up new work a human asked for',
+        steps: [
+          'list_goals / recall_knowledge — check what already exists',
+          'create_goal(...) — create the goal directly (status active). Agents create goals; there is no UI step or approval gate when a human asked.',
+          'form_intention(goal_id, nodes with ref + depends_on) — create the plan + task tree atomically, with execution order declared inline',
+          'Then execute it: claim_next_task → update_task',
+        ],
+      },
       {
         name: 'Mission control loop (Cowork autopilot or scheduled task)',
         steps: [
@@ -62,6 +71,7 @@ async function getStartedHandler(args) {
       },
     ],
     key_principles: [
+      'Agents create goals AND plans, not just execute — when a human asks you to set something up, use create_goal / form_intention directly (no UI round-trip, no approval gate). The UI is for human oversight, not the only way to create work.',
       'Tools are intent-shaped, not CRUD-shaped',
       'Reads are bundled to minimize round trips',
       'Writes are atomic where possible (update_task does status+log+release)',
