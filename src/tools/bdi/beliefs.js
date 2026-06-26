@@ -544,7 +544,16 @@ async function searchHandler(args, apiClient) {
       result = await apiClient.search.searchPlan(scope_id, query);
     } else {
       const global = await apiClient.search.globalSearch(query);
-      const all = Array.isArray(global?.results) ? global.results : [];
+      // The backend returns `results` as a GROUPED object
+      // ({ plans, nodes, comments, logs }), not a flat array — so the old
+      // `Array.isArray(results) ? … : []` always fell to [] and global search
+      // returned nothing. Flatten both shapes.
+      const r = global?.results;
+      const all = Array.isArray(r)
+        ? r
+        : r && typeof r === 'object'
+          ? [...(r.plans || []), ...(r.nodes || []), ...(r.comments || []), ...(r.logs || [])]
+          : [];
       const matchScope = (r) => {
         if (scope === 'global') return true;
         if (scope === 'plans') return r.type === 'plan';
