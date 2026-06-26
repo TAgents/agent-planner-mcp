@@ -1,6 +1,6 @@
 {
   "name": "agent-planner-mcp",
-  "version": "1.5.5",
+  "version": "1.5.6",
   "description": "MCP server for AgentPlanner — AI agent orchestration with planning, dependencies, knowledge graphs, and human oversight",
   "main": "src/index.js",
   "bin": {

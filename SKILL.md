@@ -123,7 +123,7 @@ The `update_task` call is atomic — status change, log entry, claim release, an
 
 ```
 1. claim_next_task(scope={ plan_id }, ttl_minutes=30) → exclusive ownership
-2. task_context(task_id, depth=4) periodically to refresh as work progresses
+2. task_context(node_id, depth=4) periodically to refresh as work progresses
 3. update_task(...) for state transitions
 4. release_task(task_id, message='handoff to teammate') for explicit handoff
 ```

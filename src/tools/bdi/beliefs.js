@@ -197,18 +197,26 @@ const taskContextDefinition = {
   inputSchema: {
     type: 'object',
     properties: {
-      task_id: { type: 'string' },
+      // `node_id` is the canonical name (matches every other tool + the skill
+      // docs). `task_id` is kept as an accepted alias for back-compat.
+      node_id: { type: 'string', description: 'The task/node id to load context for.' },
+      task_id: { type: 'string', description: 'Alias for node_id (back-compat).' },
       depth: { type: 'integer', enum: [1, 2, 3, 4], default: 2 },
       token_budget: { type: 'integer', default: 0 },
     },
-    required: ['task_id'],
+    // Neither is strictly required at the schema level because either name is
+    // accepted; the handler validates that one was supplied with a clear error.
   },
 };
 
 async function taskContextHandler(args, apiClient) {
-  const { task_id, depth = 2, token_budget = 0 } = args;
+  const { node_id, task_id, depth = 2, token_budget = 0 } = args;
+  const nodeId = node_id || task_id;
+  if (!nodeId) {
+    return errorResponse('invalid_arg', 'task_context requires node_id (the task/node id).');
+  }
   const params = new URLSearchParams({
-    node_id: task_id,
+    node_id: nodeId,
     depth: String(depth),
     token_budget: String(token_budget),
     log_limit: '10',
