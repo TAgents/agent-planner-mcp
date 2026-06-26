@@ -245,4 +245,41 @@ describe('update_goal tool — committed vocabulary (ring-3 alignment)', () => {
     expect(changeProps.promote_to_intention).toBeUndefined();
     expect(changeProps.committed).toEqual({ type: 'boolean' });
   });
+
+  it('camelCases success_criteria and wraps a bare array (backend schema is strict)', async () => {
+    // Regression: the handler sent snake_case success_criteria, which the strict
+    // backend schema rejected with a 400 — every success_criteria write failed
+    // while same-named fields (description) succeeded.
+    const update = jest.fn().mockResolvedValue({ id: 'g1' });
+    const apiClient = { goals: { update, get: jest.fn().mockResolvedValue({ id: 'g1' }) } };
+    await desires.handlers.update_goal(
+      { goal_id: 'g1', changes: { success_criteria: ['Ship it', 'Reach 50 users'] } },
+      apiClient,
+    );
+    const sent = update.mock.calls[0][1];
+    expect(sent).not.toHaveProperty('success_criteria');
+    expect(sent.successCriteria).toEqual({ criteria: ['Ship it', 'Reach 50 users'] });
+  });
+
+  it('passes an object success_criteria through under the camelCase key', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'g1' });
+    const apiClient = { goals: { update, get: jest.fn().mockResolvedValue({ id: 'g1' }) } };
+    await desires.handlers.update_goal(
+      { goal_id: 'g1', changes: { success_criteria: { criteria: ['x'] } } },
+      apiClient,
+    );
+    expect(update.mock.calls[0][1].successCriteria).toEqual({ criteria: ['x'] });
+  });
+
+  it('surfaces the backend field-level error on a failed direct write', async () => {
+    const err = new Error('Request failed with status code 400');
+    err.response = { data: { error: 'Validation failed', message: 'successCriteria: Invalid' } };
+    const apiClient = { goals: { update: jest.fn().mockRejectedValue(err), get: jest.fn().mockResolvedValue(null) } };
+    const res = await desires.handlers.update_goal(
+      { goal_id: 'g1', changes: { title: 'X' } },
+      apiClient,
+    );
+    const body = JSON.parse(res.content[0].text);
+    expect(body.failures[0].error).toMatch(/successCriteria: Invalid/);
+  });
 });

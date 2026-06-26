@@ -7,7 +7,7 @@
  * directly — no UI round-trip and no forced approval gate.
  */
 
-const { asOf, formatResponse, errorResponse, safeArray } = require('./_shared');
+const { asOf, formatResponse, errorResponse, safeArray, apiErrorMessage } = require('./_shared');
 
 const listGoalsDefinition = {
   name: 'list_goals',
@@ -110,10 +110,19 @@ async function updateGoalHandler(args, apiClient) {
   const applied = [];
   const failures = [];
 
-  // Direct field updates
+  // Direct field updates. title/description/priority/status share their name
+  // with the backend, but success_criteria must be camelCased to successCriteria
+  // — the goal update schema is .strict(), so the snake_case key was rejected
+  // with a 400 (the one multi-word field, hence "description writes but
+  // success_criteria fails"). Match the create shape: wrap a bare array as
+  // { criteria: [...] }.
   const directFields = {};
-  for (const k of ['title', 'description', 'priority', 'status', 'success_criteria']) {
+  for (const k of ['title', 'description', 'priority', 'status']) {
     if (changes[k] !== undefined) directFields[k] = changes[k];
+  }
+  if (changes.success_criteria !== undefined) {
+    const sc = changes.success_criteria;
+    directFields.successCriteria = Array.isArray(sc) ? { criteria: sc } : sc;
   }
   // Map the public `committed` boolean onto the backend's commitment write
   // (the API still accepts the legacy goalType field and translates it to
@@ -127,21 +136,21 @@ async function updateGoalHandler(args, apiClient) {
       await apiClient.goals.update(goal_id, directFields);
       applied.push('direct_fields');
     } catch (err) {
-      failures.push({ step: 'direct_fields', error: err.message });
+      failures.push({ step: 'direct_fields', error: apiErrorMessage(err) });
     }
   }
 
   for (const planId of safeArray(changes.add_linked_plans)) {
     try { await apiClient.goals.linkPlan(goal_id, planId); applied.push(`link_plan:${planId}`); }
-    catch (err) { failures.push({ step: `link_plan:${planId}`, error: err.message }); }
+    catch (err) { failures.push({ step: `link_plan:${planId}`, error: apiErrorMessage(err) }); }
   }
   for (const planId of safeArray(changes.remove_linked_plans)) {
     try { await apiClient.goals.unlinkPlan(goal_id, planId); applied.push(`unlink_plan:${planId}`); }
-    catch (err) { failures.push({ step: `unlink_plan:${planId}`, error: err.message }); }
+    catch (err) { failures.push({ step: `unlink_plan:${planId}`, error: apiErrorMessage(err) }); }
   }
   for (const nodeId of safeArray(changes.add_achievers)) {
     try { await apiClient.goals.addAchiever(goal_id, nodeId); applied.push(`add_achiever:${nodeId}`); }
-    catch (err) { failures.push({ step: `add_achiever:${nodeId}`, error: err.message }); }
+    catch (err) { failures.push({ step: `add_achiever:${nodeId}`, error: apiErrorMessage(err) }); }
   }
   for (const nodeId of safeArray(changes.remove_achievers)) {
     try {
@@ -152,7 +161,7 @@ async function updateGoalHandler(args, apiClient) {
         applied.push(`remove_achiever:${nodeId}`);
       }
     } catch (err) {
-      failures.push({ step: `remove_achiever:${nodeId}`, error: err.message });
+      failures.push({ step: `remove_achiever:${nodeId}`, error: apiErrorMessage(err) });
     }
   }
 
