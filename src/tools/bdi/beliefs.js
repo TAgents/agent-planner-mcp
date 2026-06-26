@@ -7,6 +7,21 @@
 
 const { asOf, formatResponse, errorResponse, safeArray, isV1Unavailable, planUrl } = require('./_shared');
 
+// A Graphiti fact is superseded once it has an `expired_at`, or an `invalid_at`
+// that is in the past — the temporal graph has replaced it with a newer truth.
+// recall_knowledge used to return these inline with current facts, undistinguished,
+// so an agent could act on stale knowledge. Tag each fact `status` and sort
+// current-first so the valid facts read first.
+function annotateFacts(facts, nowMs = Date.now()) {
+  const list = safeArray(facts).map((f) => {
+    const invalidMs = f.invalid_at ? new Date(f.invalid_at).getTime() : null;
+    const superseded = Boolean(f.expired_at) || (invalidMs != null && invalidMs <= nowMs);
+    return { ...f, status: superseded ? 'superseded' : 'current' };
+  });
+  list.sort((a, b) => (a.status === b.status ? 0 : a.status === 'current' ? -1 : 1));
+  return list;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // briefing — bundled mission control state. Replaces 4 round trips.
 // ─────────────────────────────────────────────────────────────────────────
@@ -343,6 +358,8 @@ const recallKnowledgeDefinition = {
   description:
     "Universal knowledge graph query. Returns facts, entities, recent episodes, " +
     "and contradictions in one shape. Use result_kind to control payload size. " +
+    "Each fact carries status: 'current' or 'superseded' (the graph has since " +
+    "replaced it) — facts are sorted current-first; prefer current facts. " +
     "Replaces recall_knowledge legacy + find_entities + get_recent_episodes + check_contradictions.",
   inputSchema: {
     type: 'object',
@@ -373,6 +390,11 @@ async function recallKnowledgeHandler(args, apiClient) {
       const data = await apiClient.v1.knowledgeSearch({
         query, since, entry_type, result_kind, max_results, include_contradictions, ...scope,
       });
+      if (data && Array.isArray(data.facts)) {
+        data.facts = annotateFacts(data.facts);
+        const superseded = data.facts.filter((f) => f.status === 'superseded').length;
+        data.meta = { ...(data.meta || {}), superseded_fact_count: superseded };
+      }
       return formatResponse(data);
     } catch (err) {
       if (!isV1Unavailable(err)) {
@@ -410,7 +432,7 @@ async function recallKnowledgeHandler(args, apiClient) {
       return;
     }
     const v = s.value;
-    if (key === 'facts') out.facts = safeArray(v.facts || v);
+    if (key === 'facts') out.facts = annotateFacts(v.facts || v);
     if (key === 'entities') out.entities = safeArray(v.entities || v);
     if (key === 'episodes') {
       let eps = safeArray(v.episodes?.episodes || v.episodes || v);
@@ -426,6 +448,7 @@ async function recallKnowledgeHandler(args, apiClient) {
     if (key === 'contradictions') out.contradictions = v;
   });
 
+  out.meta.superseded_fact_count = out.facts.filter((f) => f.status === 'superseded').length;
   return formatResponse(out);
 }
 
