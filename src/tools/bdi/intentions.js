@@ -229,15 +229,21 @@ async function resolveDecisionHandler(args, apiClient) {
   if (action === 'approve' && decision?.metadata?.proposed_subtasks?.length) {
     for (const proposal of decision.metadata.proposed_subtasks) {
       try {
+        // createNode's schema is .strict() and has no acceptance_criteria field —
+        // sending it 400s the whole subtask. Fold it into the description so the
+        // criteria survive instead of being silently dropped on approval.
+        const description = [
+          proposal.description,
+          proposal.acceptance_criteria ? `Acceptance criteria: ${proposal.acceptance_criteria}` : null,
+        ].filter(Boolean).join('\n\n') || undefined;
         const node = await apiClient.nodes.createNode(plan_id, {
           parent_id: proposal.parent_id,
           node_type: proposal.node_type || 'task',
           title: proposal.title,
-          description: proposal.description,
+          description,
           status: 'not_started',
           task_mode: proposal.task_mode || 'free',
           agent_instructions: proposal.agent_instructions,
-          acceptance_criteria: proposal.acceptance_criteria,
         });
         created.push({ id: node.id || node.node?.id, title: proposal.title, parent_id: proposal.parent_id });
       } catch (err) {
@@ -274,6 +280,12 @@ const STATUS_TO_LOG_TYPE = {
   plan_ready: 'progress',
 };
 
+// The backend log endpoint accepts comment/progress/reasoning/decision/challenge.
+// Two friendly aliases the tool historically advertised are NOT valid there and
+// 400'd the log step — map them to the closest valid type.
+const LOG_TYPE_ALIASES = { blocker: 'challenge', completion: 'progress' };
+const normalizeLogType = (lt) => (lt ? (LOG_TYPE_ALIASES[lt] || lt) : lt);
+
 const updateTaskDefinition = {
   name: 'update_task',
   description:
@@ -295,8 +307,9 @@ const updateTaskDefinition = {
       log_message: { type: 'string', description: 'Optional progress note' },
       log_type: {
         type: 'string',
-        enum: ['progress', 'decision', 'blocker', 'completion', 'challenge'],
-        description: "Defaults from status: blocked→challenge, others→progress.",
+        enum: ['progress', 'reasoning', 'decision', 'challenge', 'comment'],
+        description: "Defaults from status: blocked→challenge, others→progress. "
+          + "Legacy 'blocker'/'completion' are accepted and mapped to challenge/progress.",
       },
       release_claim: {
         type: 'boolean',
@@ -344,7 +357,7 @@ async function updateTaskHandler(args, apiClient) {
       const data = await apiClient.v1.updateTask(task_id, {
         status,
         log_message,
-        log_type: args.log_type,
+        log_type: normalizeLogType(args.log_type),
         release_claim,
         add_learning,
       });
@@ -390,7 +403,7 @@ async function updateTaskHandler(args, apiClient) {
 
   // 2. Log entry
   if (log_message) {
-    const logType = args.log_type || STATUS_TO_LOG_TYPE[status] || 'progress';
+    const logType = normalizeLogType(args.log_type) || STATUS_TO_LOG_TYPE[status] || 'progress';
     try {
       const log = await apiClient.logs.addLogEntry(planId, task_id, {
         content: log_message,
@@ -718,6 +731,13 @@ async function addLearningHandler(args, apiClient) {
       plan_id: scope.plan_id,
       node_id: scope.node_id,
       entity_type: entry_type,
+      // The episodes endpoint only persists {content,name,plan_id,node_id,metadata};
+      // the top-level entry_type/source_description were silently dropped. Carry
+      // the categorization in metadata so it survives on the stored episode.
+      metadata: {
+        entry_type,
+        source_description: source_description || 'BDI add_learning',
+      },
     });
     return formatResponse({
       as_of: asOf(),
