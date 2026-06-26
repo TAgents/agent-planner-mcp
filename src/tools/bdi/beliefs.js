@@ -363,6 +363,9 @@ const recallKnowledgeDefinition = {
 
 async function recallKnowledgeHandler(args, apiClient) {
   const { query, scope = {}, since, entry_type = 'all', result_kind = 'all', max_results = 10, include_contradictions = false } = args;
+  if (!query || !String(query).trim()) {
+    return errorResponse('invalid_arg', 'recall_knowledge requires a non-empty query string');
+  }
 
   // v1 facade: one server-side call replaces the 4-endpoint fan-out below.
   if (apiClient.v1) {
@@ -539,6 +542,9 @@ const searchDefinition = {
 
 async function searchHandler(args, apiClient) {
   const { query, scope = 'global', scope_id, filters = {} } = args;
+  if (!query || !String(query).trim()) {
+    return errorResponse('invalid_arg', 'search requires a non-empty query string');
+  }
   const limit = filters.limit || 20;
   try {
     let result;
@@ -601,8 +607,17 @@ const planAnalysisDefinition = {
   },
 };
 
+const PLAN_ANALYSIS_TYPES = ['impact', 'critical_path', 'bottlenecks', 'coherence'];
+
 async function planAnalysisHandler(args, apiClient) {
   const { plan_id, type, node_id, scenario } = args;
+  // The hosted MCP transport does not enforce `required`, so a missing/unknown
+  // `type` would otherwise fall through every branch and return an empty
+  // `results: {}` with no explanation. Validate explicitly with a clear error.
+  if (!plan_id) return errorResponse('invalid_arg', 'plan_analysis requires plan_id');
+  if (!type || !PLAN_ANALYSIS_TYPES.includes(type)) {
+    return errorResponse('invalid_arg', `plan_analysis requires type (one of: ${PLAN_ANALYSIS_TYPES.join(', ')})`);
+  }
   try {
     let result;
     if (type === 'critical_path') {
@@ -616,7 +631,18 @@ async function planAnalysisHandler(args, apiClient) {
     } else if (type === 'coherence') {
       result = await apiClient.coherence.runCheck(plan_id);
     }
-    return formatResponse({ as_of: asOf(), type, results: result || {} });
+    const payload = { as_of: asOf(), type, results: result || {} };
+    // Critical-path / bottleneck analysis is driven by `blocks` dependency
+    // edges. A flat (edgeless) plan returns empty here — without a hint the
+    // agent can't tell "nothing blocking" from "this plan has no edges at all".
+    const emptyCriticalPath = type === 'critical_path' && !(result?.nodes?.length);
+    const emptyBottlenecks = type === 'bottlenecks'
+      && !((Array.isArray(result) ? result : result?.bottlenecks)?.length);
+    if (emptyCriticalPath || emptyBottlenecks) {
+      payload.note = 'No dependency edges drive this result — the plan may be flat (no blocks edges). '
+        + 'Use task_context (depth 2+) to read its tasks, or add dependencies with link_intentions.';
+    }
+    return formatResponse(payload);
   } catch (err) {
     return errorResponse('upstream_unavailable', `plan_analysis failed: ${err.response?.data?.error || err.message}`);
   }
