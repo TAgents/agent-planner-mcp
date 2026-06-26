@@ -463,8 +463,10 @@ async function listPlansHandler(args, apiClient) {
       const q = filter.query.toLowerCase();
       plans = plans.filter((p) => (p.title || '').toLowerCase().includes(q));
     }
-    plans = plans.slice(0, filter.limit || 50);
 
+    // Summarize the FULL filtered set BEFORE paginating — otherwise `total` and
+    // the status counts only reflect the truncated page, making an agent think
+    // it has seen every plan when it hasn't.
     const summary = plans.reduce(
       (acc, p) => {
         acc[p.status] = (acc[p.status] || 0) + 1;
@@ -474,10 +476,15 @@ async function listPlansHandler(args, apiClient) {
       { total: 0 },
     );
 
+    const limit = filter.limit || 50;
+    const page = plans.slice(0, limit);
+    summary.returned = page.length;
+    summary.truncated = plans.length > page.length; // true → raise `filter.limit` to see the rest
+
     return formatResponse({
       as_of: asOf(),
       summary,
-      plans: plans.map((p) => ({
+      plans: page.map((p) => ({
         id: p.id,
         title: p.title,
         status: p.status,
