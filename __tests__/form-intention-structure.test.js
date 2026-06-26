@@ -99,7 +99,7 @@ describe('form_intention — inline dependencies (legacy path)', () => {
     );
     const body = parse(result);
 
-    expect(client.axiosInstance.post).toHaveBeenCalledWith('/dependencies', {
+    expect(client.axiosInstance.post).toHaveBeenCalledWith(`/plans/${PLAN_ID}/dependencies`, {
       source_node_id: 'node-1',
       target_node_id: 'node-2',
       dependency_type: 'blocks',
@@ -121,7 +121,7 @@ describe('form_intention — inline dependencies (legacy path)', () => {
       client,
     );
 
-    expect(client.axiosInstance.post).toHaveBeenCalledWith('/dependencies', {
+    expect(client.axiosInstance.post).toHaveBeenCalledWith(`/plans/${PLAN_ID}/dependencies`, {
       source_node_id: 'node-1',
       target_node_id: 'node-2',
       dependency_type: 'blocks',
@@ -141,7 +141,7 @@ describe('form_intention — inline dependencies (legacy path)', () => {
     );
     const body = parse(result);
 
-    expect(client.axiosInstance.post).not.toHaveBeenCalledWith('/dependencies', expect.anything());
+    expect(client.axiosInstance.post).not.toHaveBeenCalledWith(`/plans/${PLAN_ID}/dependencies`, expect.anything());
     expect(body.structure.task_count).toBe(2);
     expect(body.structure.dependency_edges).toBe(0);
     expect(body.structure.created_without_dependencies).toBe(true);
@@ -163,7 +163,7 @@ describe('form_intention — inline dependencies (legacy path)', () => {
     const body = parse(result);
 
     expect(body.nodes_created).toBe(2); // plan still created
-    expect(client.axiosInstance.post).not.toHaveBeenCalledWith('/dependencies', expect.anything());
+    expect(client.axiosInstance.post).not.toHaveBeenCalledWith(`/plans/${PLAN_ID}/dependencies`, expect.anything());
     expect(body.structure.dependency_warnings[0]).toMatch(/does-not-exist/);
   });
 });

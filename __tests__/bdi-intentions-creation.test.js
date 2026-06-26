@@ -263,9 +263,12 @@ describe('propose_research_chain tool', () => {
     const modes = client.nodes.createNode.mock.calls.map((c) => c[1].task_mode);
     expect(modes).toEqual(['research', 'plan', 'implement']);
 
-    // Two blocking edges via /dependencies
+    // Two blocking edges via the PLAN-SCOPED route. Asserting the URL (not just
+    // the body) is the regression guard: the bare /dependencies path 404s, which
+    // previously dropped both edges silently while this test stayed green.
     expect(client.axiosInstance.post).toHaveBeenCalledTimes(2);
-    expect(client.axiosInstance.post.mock.calls[0][1]).toEqual(
+    expect(client.axiosInstance.post).toHaveBeenCalledWith(
+      `/plans/${PLAN_ID}/dependencies`,
       expect.objectContaining({ dependency_type: 'blocks' }),
     );
 

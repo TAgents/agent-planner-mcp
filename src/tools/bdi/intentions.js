@@ -938,7 +938,10 @@ async function formIntentionHandler(args, apiClient) {
         continue;
       }
       try {
-        await apiClient.axiosInstance.post('/dependencies', {
+        // Plan-scoped route — the bare /dependencies path is unmounted (only
+        // /dependencies/cross-plan + /external exist), so it 404s and silently
+        // dropped every inline edge. POST /plans/:id/dependencies is canonical.
+        await apiClient.axiosInstance.post(`/plans/${plan.id}/dependencies`, {
           source_node_id: sourceId,
           target_node_id: intent.targetId,
           dependency_type: 'blocks',
@@ -1133,7 +1136,9 @@ async function proposeResearchChainHandler(args, apiClient) {
     [created.plan.id, created.implement.id],
   ]) {
     try {
-      await apiClient.axiosInstance.post('/dependencies', {
+      // Plan-scoped route — bare /dependencies 404s (unmounted), which silently
+      // dropped both chain edges and left 3 orphan tasks.
+      await apiClient.axiosInstance.post(`/plans/${plan_id}/dependencies`, {
         source_node_id: from,
         target_node_id: to,
         dependency_type: 'blocks',
@@ -1144,6 +1149,7 @@ async function proposeResearchChainHandler(args, apiClient) {
     }
   }
 
+  const edgeFailures = failures.filter((f) => f.step === 'create_edge');
   return formatResponse({
     as_of: asOf(),
     plan_id,
@@ -1154,6 +1160,11 @@ async function proposeResearchChainHandler(args, apiClient) {
     implement: { id: created.implement.id, title: created.implement.title },
     edges,
     failures,
+    // Fail loudly: don't let the caller believe the chain is wired when the
+    // blocking edges didn't get created.
+    ...(edgeFailures.length
+      ? { warning: `Chain tasks created but ${edgeFailures.length} blocking edge(s) FAILED — the Research→Plan→Implement ordering is NOT wired: ${edgeFailures.map((f) => f.error).join('; ')}` }
+      : {}),
     next_step: "Claim the Research task with claim_next_task({plan_id}) to begin investigation.",
   });
 }
