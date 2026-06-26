@@ -13,7 +13,7 @@
  * See ../../../docs/MCP_v1.0_FULL_SURFACE.md for design rationale.
  */
 
-const { asOf, formatResponse, errorResponse, isV1Unavailable, planUrl } = require('./_shared');
+const { asOf, formatResponse, errorResponse, apiErrorMessage, isV1Unavailable, planUrl } = require('./_shared');
 const { version: PKG_VERSION } = require('../../../package.json');
 
 // Provenance tag stamped onto every plan this server creates, so a plan stays
@@ -108,14 +108,37 @@ async function queueDecisionHandler(args, apiClient) {
     return errorResponse('invalid_arg', 'queue_decision requires either plan_id or node_id');
   }
 
+  // The agent-facing urgency vocabulary (low/normal/high) differs from the
+  // backend decision schema (blocking/can_continue/informational) — map it, or
+  // every call fails strict validation.
+  const URGENCY_MAP = { low: 'informational', normal: 'can_continue', high: 'blocking' };
+  const mappedUrgency = URGENCY_MAP[urgency] || 'can_continue';
+
+  // The backend decisionOption shape is {option, pros?, cons?, recommendation?}
+  // and is .strict() — our {label, description} would be rejected. Fold
+  // description into the option text and mark the recommended one.
+  const recText = String(recommendation || '').toLowerCase();
+  const mappedOptions = Array.isArray(options)
+    ? options
+        .map((o) => {
+          const label = o.label || o.option || '';
+          const option = o.description ? `${label} — ${o.description}` : label;
+          const isRecommended = label && recText.includes(label.toLowerCase());
+          return option ? { option, ...(isRecommended ? { recommendation: true } : {}) } : null;
+        })
+        .filter(Boolean)
+    : [];
+
   const body = {
     title,
     context,
-    options: options || [],
-    recommendation: recommendation || null,
-    urgency: urgency || 'normal',
+    options: mappedOptions,
+    urgency: mappedUrgency,
+    // Top-level `recommendation` is not in the strict schema — keep the agent's
+    // free-text recommendation and ask in metadata instead.
     metadata: {
       smallest_input_needed,
+      recommendation: recommendation || null,
       goal_id: goal_id || null,
       source: 'bdi.queue_decision',
       proposed_subtasks: Array.isArray(proposed_subtasks) ? proposed_subtasks : undefined,
@@ -136,10 +159,7 @@ async function queueDecisionHandler(args, apiClient) {
       title: created.title,
     });
   } catch (err) {
-    return errorResponse(
-      'upstream_unavailable',
-      `Failed to queue decision: ${err.response?.data?.error || err.message}`
-    );
+    return errorResponse('upstream_unavailable', `Failed to queue decision: ${apiErrorMessage(err)}`);
   }
 }
 
@@ -187,20 +207,20 @@ async function resolveDecisionHandler(args, apiClient) {
     // Best-effort — if fetch fails, we still try to resolve.
   }
 
+  // The backend resolve schema is strict {decision, rationale}. Encode the
+  // action (+ chosen option) into `decision` and the note into `rationale` —
+  // the previous {resolution, message, selected_option} body was rejected.
+  const decisionText = selected_option ? `${action} — ${selected_option}` : action;
   let resolved;
   try {
     resolved = await apiClient.axiosInstance
       .post(`/plans/${plan_id}/decisions/${decision_id}/resolve`, {
-        resolution: action,
-        message: message || null,
-        selected_option: selected_option || null,
+        decision: decisionText,
+        rationale: message || undefined,
       })
       .then((r) => r.data);
   } catch (err) {
-    return errorResponse(
-      'upstream_unavailable',
-      `Failed to resolve decision: ${err.response?.data?.error || err.message}`
-    );
+    return errorResponse('upstream_unavailable', `Failed to resolve decision: ${apiErrorMessage(err)}`);
   }
 
   // On approve, materialize any proposed_subtasks atomically (best-effort per task).

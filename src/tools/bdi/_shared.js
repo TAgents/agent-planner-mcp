@@ -27,6 +27,22 @@ function safeArray(value) {
 }
 
 /**
+ * Extract the most actionable message from an axios error. The AP backend's
+ * validation errors carry a field-level `message` (e.g. "urgency: must be one
+ * of ...; options.0: Unrecognized key") plus a `details` array — far more
+ * useful than the generic top-line `error` ("Validation failed"), which is all
+ * most handlers surfaced. Prefer message → error → err.message.
+ */
+function apiErrorMessage(err) {
+  const data = err?.response?.data;
+  if (data) {
+    if (data.message && data.message !== data.error) return data.message;
+    if (typeof data.error === 'string') return data.error;
+  }
+  return err?.message || 'unknown error';
+}
+
+/**
  * The web app origin (where /app/plans/:id lives), for building shareable plan
  * links agents can post (e.g. to Slack). Derived from API_URL — the web app
  * shares the origin and the API sits under /api behind nginx — with an explicit
@@ -56,4 +72,4 @@ function isV1Unavailable(err) {
   return !(body && typeof body === 'object' && body.error);
 }
 
-module.exports = { asOf, formatResponse, errorResponse, safeArray, isV1Unavailable, webOrigin, planUrl };
+module.exports = { asOf, formatResponse, errorResponse, safeArray, apiErrorMessage, isV1Unavailable, webOrigin, planUrl };
