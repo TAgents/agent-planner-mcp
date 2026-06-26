@@ -5,7 +5,7 @@
  * plan_analysis. Each answers one whole agentic question and returns `as_of`.
  */
 
-const { asOf, formatResponse, errorResponse, safeArray, isV1Unavailable } = require('./_shared');
+const { asOf, formatResponse, errorResponse, safeArray, isV1Unavailable, planUrl } = require('./_shared');
 
 // ─────────────────────────────────────────────────────────────────────────
 // briefing — bundled mission control state. Replaces 4 round trips.
@@ -486,6 +486,7 @@ async function listPlansHandler(args, apiClient) {
       summary,
       plans: page.map((p) => ({
         id: p.id,
+        url: planUrl(p.id),
         title: p.title,
         status: p.status,
         visibility: p.visibility,

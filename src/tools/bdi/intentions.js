@@ -13,7 +13,7 @@
  * See ../../../docs/MCP_v1.0_FULL_SURFACE.md for design rationale.
  */
 
-const { asOf, formatResponse, errorResponse, isV1Unavailable } = require('./_shared');
+const { asOf, formatResponse, errorResponse, isV1Unavailable, planUrl } = require('./_shared');
 const { version: PKG_VERSION } = require('../../../package.json');
 
 // Provenance tag stamped onto every plan this server creates, so a plan stays
@@ -854,16 +854,18 @@ async function formIntentionHandler(args, apiClient) {
         tree,
         client_version: CLIENT_TAG,
       });
+      const facadePlanId = result.plan?.id || result.plan_id;
       return formatResponse({
         ...result,
-        plan_id: result.plan?.id || result.plan_id,
+        plan_id: facadePlanId,
+        url: planUrl(facadePlanId),
         goal_id,
         status: result.plan?.status || status,
         is_draft: (result.plan?.status || status) === 'draft',
         nodes_created: Array.isArray(result.tree) ? result.tree.length : undefined,
         next_step: (result.plan?.status || status) === 'draft'
           ? "Plan created as draft. Will surface in dashboard pending for human review. Auto-promotes to active when first task moves to in_progress."
-          : "Plan active. Claim a task with claim_next_task({plan_id}) to begin work.",
+          : `Plan active. Claim a task with claim_next_task({plan_id}) to begin work. Shareable link: ${planUrl(facadePlanId)} (set visibility:'unlisted' for a rich Slack/social preview).`,
       });
     } catch {
       // Fall through to the legacy multi-call path for older/self-hosted APIs.
@@ -966,6 +968,7 @@ async function formIntentionHandler(args, apiClient) {
   const response = {
     as_of: asOf(),
     plan_id: plan.id,
+    url: planUrl(plan.id),
     goal_id,
     status: plan.status,
     is_draft: plan.status === 'draft',
@@ -975,7 +978,7 @@ async function formIntentionHandler(args, apiClient) {
     structure,
     next_step: plan.status === 'draft'
       ? "Plan created as draft. Will surface in dashboard pending for human review. Auto-promotes to active when first task moves to in_progress."
-      : "Plan active. Claim a task with claim_next_task({plan_id}) to begin work.",
+      : `Plan active. Claim a task with claim_next_task({plan_id}) to begin work. Shareable link: ${planUrl(plan.id)} (set visibility:'unlisted' for a rich Slack/social preview).`,
   };
   if (createdWithoutDependencies) {
     response.warning =
@@ -1153,6 +1156,7 @@ async function proposeResearchChainHandler(args, apiClient) {
   return formatResponse({
     as_of: asOf(),
     plan_id,
+    url: planUrl(plan_id),
     parent_id,
     rationale,
     research: { id: created.research.id, title: created.research.title },

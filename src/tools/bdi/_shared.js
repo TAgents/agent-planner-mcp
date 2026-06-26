@@ -27,6 +27,24 @@ function safeArray(value) {
 }
 
 /**
+ * The web app origin (where /app/plans/:id lives), for building shareable plan
+ * links agents can post (e.g. to Slack). Derived from API_URL — the web app
+ * shares the origin and the API sits under /api behind nginx — with an explicit
+ * AGENTPLANNER_WEB_URL override for local/self-hosted setups where the UI is on
+ * a different host/port.
+ */
+function webOrigin() {
+  if (process.env.AGENTPLANNER_WEB_URL) return process.env.AGENTPLANNER_WEB_URL.replace(/\/+$/, '');
+  const api = process.env.API_URL || 'https://agentplanner.io/api';
+  return api.replace(/\/+$/, '').replace(/\/api$/, '') || 'https://agentplanner.io';
+}
+
+/** Shareable web link to a plan (set the plan's visibility to unlisted/public for a rich unfurl). */
+function planUrl(planId) {
+  return planId ? `${webOrigin()}/app/plans/${planId}` : null;
+}
+
+/**
  * True when an error means the backend has no /v1 surface (pre-consolidation
  * self-hosted API). Express returns a default 404 with no structured body for
  * unmatched routes, whereas v1 handlers always return JSON with an `error`
@@ -38,4 +56,4 @@ function isV1Unavailable(err) {
   return !(body && typeof body === 'object' && body.error);
 }
 
-module.exports = { asOf, formatResponse, errorResponse, safeArray, isV1Unavailable };
+module.exports = { asOf, formatResponse, errorResponse, safeArray, isV1Unavailable, webOrigin, planUrl };
