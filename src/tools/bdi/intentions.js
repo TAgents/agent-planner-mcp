@@ -738,6 +738,15 @@ function validateTreeShape(tree, depth = 0) {
   return null;
 }
 
+// Count every node in a returned tree, recursing through `children`. The facade
+// response's `tree` is the array of top-level nodes; `tree.length` alone counts
+// only those (e.g. 2 phases) and contradicts structure.task_count, so report
+// the true recursive total.
+function countTreeNodes(tree) {
+  if (!Array.isArray(tree)) return 0;
+  return tree.reduce((sum, node) => sum + 1 + countTreeNodes(node?.children), 0);
+}
+
 const formIntentionDefinition = {
   name: 'form_intention',
   description:
@@ -862,7 +871,7 @@ async function formIntentionHandler(args, apiClient) {
         goal_id,
         status: result.plan?.status || status,
         is_draft: (result.plan?.status || status) === 'draft',
-        nodes_created: Array.isArray(result.tree) ? result.tree.length : undefined,
+        nodes_created: Array.isArray(result.tree) ? countTreeNodes(result.tree) : undefined,
         next_step: (result.plan?.status || status) === 'draft'
           ? "Plan created as draft. Will surface in dashboard pending for human review. Auto-promotes to active when first task moves to in_progress."
           : `Plan active. Claim a task with claim_next_task({plan_id}) to begin work. Shareable link: ${planUrl(facadePlanId)} (set visibility:'unlisted' for a rich Slack/social preview).`,

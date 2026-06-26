@@ -83,6 +83,31 @@ describe('form_intention — inline dependencies (server path)', () => {
     expect(body.warning).toMatch(/no dependency edges/i);
     expect(body.next_required_action).toMatch(/link_intentions/);
   });
+
+  it('reports nodes_created as the RECURSIVE total, not just top-level entries', async () => {
+    // Regression: nodes_created used result.tree.length (top-level only), so a
+    // 2-phase tree with 4 nested children reported 2 — contradicting
+    // structure.task_count (4). It must count every node recursively.
+    const client = {
+      agentLoop: {
+        createIntention: jest.fn().mockResolvedValue({
+          plan: { id: PLAN_ID, status: 'draft' },
+          tree: [
+            { id: 'p1', children: [{ id: 't1' }, { id: 't2' }] },
+            { id: 'p2', children: [{ id: 't3' }, { id: 't4' }] },
+          ],
+          structure: { task_count: 4, dependency_edges: 3, created_without_dependencies: false },
+        }),
+      },
+    };
+    const result = await intentions.handlers.form_intention(
+      { goal_id: GOAL_ID, title: 'P', rationale: 'r', status: 'draft', tree: [] },
+      client,
+    );
+    const body = parse(result);
+    // 2 phases + 4 children = 6 nodes, not 2.
+    expect(body.nodes_created).toBe(6);
+  });
 });
 
 describe('form_intention — inline dependencies (legacy path)', () => {
