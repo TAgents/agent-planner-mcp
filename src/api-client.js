@@ -1087,6 +1087,12 @@ function createApiClient(token, options = {}) {
 // Export the axios instance for direct use
 const axiosInstance = apiClient;
 
+// ─── System ───────────────────────────────────────────────────
+// Operational metadata about the backend the MCP is talking to.
+const system = {
+  version: () => apiClient.get('/version').then(r => r.data),
+};
+
 // ─── Coherence ────────────────────────────────────────────────
 const coherence = {
   getPending: () => apiClient.get('/coherence/pending').then(r => r.data),
@@ -1112,6 +1118,7 @@ module.exports = {
   coherence,
   users,
   agentLoop,
+  system,
   v1,
   axiosInstance,  // Export for direct API calls
   createApiClient  // Factory for per-session clients (HTTP mode)

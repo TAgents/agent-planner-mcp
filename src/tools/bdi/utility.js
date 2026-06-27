@@ -19,10 +19,22 @@ const getStartedDefinition = {
   },
 };
 
-async function getStartedHandler(args) {
+async function getStartedHandler(args, apiClient) {
+  // Best-effort backend version so one call shows which builds are in play
+  // (the MCP and the API it is actually talking to are deployed separately).
+  let api = { version: 'unavailable' };
+  try {
+    if (apiClient?.system?.version) api = await apiClient.system.version();
+  } catch {
+    api = { version: 'unavailable' };
+  }
+
   return formatResponse({
     as_of: asOf(),
     mcp_version: MCP_VERSION,
+    api_url: process.env.API_URL || 'http://localhost:3000',
+    api_version: api.version,
+    api_build: api.commit ? { commit: api.commit, started_at: api.started_at } : undefined,
     overview:
       "AgentPlanner exposes a BDI-aligned MCP surface. Tools are grouped by " +
       "Beliefs (state queries), Desires (goals), and Intentions (committed actions). " +
@@ -31,7 +43,7 @@ async function getStartedHandler(args) {
       beliefs: ['briefing', 'list_plans', 'task_context', 'goal_state', 'recall_knowledge', 'search', 'plan_analysis'],
       desires: ['list_goals', 'create_goal', 'update_goal', 'derive_subgoal'],
       intentions: ['form_intention', 'extend_intention', 'link_intentions', 'propose_research_chain', 'claim_next_task', 'update_task', 'update_node', 'release_task', 'queue_decision', 'resolve_decision', 'add_learning'],
-      workspaces: ['list_workspaces', 'create_workspace', 'list_blueprints', 'fork_blueprint', 'save_as_blueprint'],
+      workspaces: ['list_workspaces', 'create_workspace', 'list_blueprints', 'fork_blueprint', 'save_as_blueprint', 'delete_blueprint'],
     },
     recommended_workflows: [
       {
