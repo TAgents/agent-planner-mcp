@@ -232,8 +232,8 @@ Add the same JSON config to your Cline MCP settings in VS Code.
 
 ## Key Features
 
-- **24 BDI-aligned tools** for state, goals, and committed actions — no CRUD shapes, every tool answers a whole agentic question
-- **Full mutation surface (v1.0)** — agents and humans-via-agents can manage every plan/node/org property without leaving the conversation; UI is optional inspection
+- **39 BDI-aligned tools** for state, goals, committed actions, and workspace/blueprint management — no CRUD shapes, every tool answers a whole agentic question
+- **Full mutation surface** — agents and humans-via-agents can manage every plan/node/org property, plus workspaces and reusable blueprints, without leaving the conversation; UI is optional inspection
 - **Draft-status seam** — autonomous agent creation lands as drafts surfacing in the dashboard pending queue; human-directed creation defaults to active
 - **Dependency graph** — cycle detection, impact analysis, critical path
 - **Progressive context** — 4-layer context assembly with token budgeting
@@ -242,10 +242,11 @@ Add the same JSON config to your Cline MCP settings in VS Code.
 - **Task claims** — TTL-based locking for multi-agent coordination
 - **Organizations** — multi-tenant isolation with member management
 
-## Available Tools (v1.0.0)
+## Available Tools (v1.5)
 
 ### Beliefs (read state)
 - `briefing` — bundled mission control state in one call
+- `list_plans` — list plans with optional status/visibility/text filters; returns ids, status, last update, and link counts so you can pick a plan without round-tripping `briefing`
 - `task_context` — single task at progressive depth 1-4
 - `goal_state` — single goal deep-dive (details + quality + progress + bottlenecks + gaps)
 - `recall_knowledge` — knowledge graph query (facts, entities, episodes, contradictions)
@@ -256,7 +257,8 @@ Add the same JSON config to your Cline MCP settings in VS Code.
 - `list_goals` — goals with health rollup
 - `update_goal` — atomic goal update (subsumes link/unlink/achievers)
 - `create_goal` — create a new top-level goal (no parent)
-- `derive_subgoal` *(v1.0)* — create a sub-goal under an existing parent
+- `derive_subgoal` — create a sub-goal under an existing parent
+- `record_criterion_progress` — record the latest observed value of a goal's success criterion (e.g. a metric moved 40→72); the write that makes goal attainment real
 
 ### Intentions — execution
 - `claim_next_task` — pick + claim + load context (one call)
@@ -266,23 +268,31 @@ Add the same JSON config to your Cline MCP settings in VS Code.
 - `resolve_decision` — pick up human's answer (atomically materializes any `proposed_subtasks`)
 - `add_learning` — record knowledge episode
 
-### Intentions — creation *(v1.0)*
+### Intentions — creation
 - `form_intention` — create plan + initial tree under a goal, atomically
 - `extend_intention` — add children under an existing parent (lightweight)
 - `propose_research_chain` — RPI triple with 2 blocking edges, in one call
 
-### Intentions — structural mutation *(v1.0)*
+### Intentions — structural mutation
 - `update_plan` — edit any plan property
 - `update_node` — edit any node property except status
 - `move_node` — reparent within plan; cycle-safe
 - `link_intentions` / `unlink_intentions` — manage dependency edges
 - `delete_plan` / `delete_node` — soft-delete via `status='archived'` (recoverable)
 
-### Intentions — sharing & collaboration *(v1.0)*
+### Intentions — sharing & collaboration
 - `share_plan` — atomic visibility + add/remove collaborators
 - `invite_member` — add user to org (by user_id or email)
 - `update_member_role` — owner-only role change
 - `remove_member` — owner/admin removes non-owner member
+
+### Workspaces & Blueprints
+- `list_workspaces` — list workspaces (goal/plan folders) in an organization
+- `create_workspace` — create a new workspace inside an organization (slug auto-generated and de-duped)
+- `list_blueprints` — list blueprints visible to you (owned + public/unlisted), filterable by scope/visibility
+- `save_as_blueprint` — snapshot a live plan as a reusable plan-scope blueprint (structure + agent_instructions + dependencies; excludes run-state)
+- `fork_blueprint` — fork a plan-scope blueprint into a target workspace as a new plan (statuses reset, lineage recorded)
+- `delete_blueprint` — hard-delete a blueprint you own (already-forked plans are unaffected)
 
 ### Utility
 - `get_started` — dynamic reference for new agents
@@ -307,12 +317,10 @@ npx agent-planner-mcp
 For remote access (ChatGPT, cloud deployments, multi-agent systems):
 ```bash
 MCP_TRANSPORT=http npx agent-planner-mcp
-# Listens on http://127.0.0.1:3100
+# Listens on http://127.0.0.1:3100 (override with PORT)
 ```
 
-Production endpoint: `https://agentplanner.io/mcp`
-
-See [HTTP_MODE.md](./HTTP_MODE.md) for details.
+Transport is Streamable HTTP (MCP 2025-03-26); auth via `Authorization: ApiKey <your-token>`. Production endpoint: `https://agentplanner.io/mcp` (discovery at `https://agentplanner.io/.well-known/mcp.json`).
 
 ## Local Development
 
@@ -341,5 +349,4 @@ MIT License - see [LICENSE](./LICENSE) for details.
 ## Support
 
 - [GitHub Issues](https://github.com/TAgents/agent-planner-mcp/issues)
-- [CHANGELOG.md](./CHANGELOG.md) for version history
-- [PDR.md](./PDR.md) for technical design
+- [GitHub Releases](https://github.com/TAgents/agent-planner-mcp/releases) for version history and release notes
