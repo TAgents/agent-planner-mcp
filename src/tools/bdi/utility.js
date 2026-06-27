@@ -29,6 +29,17 @@ async function getStartedHandler(args, apiClient) {
     api = { version: 'unavailable' };
   }
 
+  // Derived from the actual module definitions so this map can't drift from the
+  // real tool set (it silently did — delete_blueprint and record_criterion_progress
+  // were both missing at points). Lazy require avoids any load-order cycle.
+  const namesOf = (mod) => (mod.definitions || []).map((d) => d.name);
+  const toolsByNamespace = {
+    beliefs: namesOf(require('./beliefs')),
+    desires: namesOf(require('./desires')),
+    intentions: namesOf(require('./intentions')),
+    workspaces: namesOf(require('./workspaces')),
+  };
+
   return formatResponse({
     as_of: asOf(),
     mcp_version: MCP_VERSION,
@@ -39,12 +50,7 @@ async function getStartedHandler(args, apiClient) {
       "AgentPlanner exposes a BDI-aligned MCP surface. Tools are grouped by " +
       "Beliefs (state queries), Desires (goals), and Intentions (committed actions). " +
       "Each tool answers one whole agentic question and returns an `as_of` timestamp.",
-    tools_by_namespace: {
-      beliefs: ['briefing', 'list_plans', 'task_context', 'goal_state', 'recall_knowledge', 'search', 'plan_analysis'],
-      desires: ['list_goals', 'create_goal', 'update_goal', 'derive_subgoal', 'record_criterion_progress'],
-      intentions: ['form_intention', 'extend_intention', 'link_intentions', 'propose_research_chain', 'claim_next_task', 'update_task', 'update_node', 'release_task', 'queue_decision', 'resolve_decision', 'add_learning'],
-      workspaces: ['list_workspaces', 'create_workspace', 'list_blueprints', 'fork_blueprint', 'save_as_blueprint', 'delete_blueprint'],
-    },
+    tools_by_namespace: toolsByNamespace,
     recommended_workflows: [
       {
         name: 'Set up new work a human asked for',

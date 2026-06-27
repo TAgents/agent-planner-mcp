@@ -37,4 +37,15 @@ describe('get_started — version reporting', () => {
     const body = parse(await utility.handlers.get_started({}, {}));
     expect(body.tools_by_namespace.workspaces).toContain('delete_blueprint');
   });
+
+  it('namespace map is derived — every BDI tool (except get_started) appears exactly once', async () => {
+    const { bdiToolDefinitions } = require('../src/tools/bdi');
+    const body = parse(await utility.handlers.get_started({}, {}));
+    const mapped = Object.values(body.tools_by_namespace).flat().sort();
+    const expected = bdiToolDefinitions
+      .map((t) => t.name)
+      .filter((n) => n !== 'get_started')
+      .sort();
+    expect(mapped).toEqual(expected); // no missing tools, no stale entries
+  });
 });
