@@ -337,6 +337,26 @@ recall_knowledge({
 - **v0.8.x → v0.9.0** — clean break. 63 legacy CRUD tools collapsed into 15 BDI-aligned tools. See [docs/MIGRATION_v0.9.md](docs/MIGRATION_v0.9.md) for the full mapping.
 - **v0.9.x → v1.0.0** — additive. v0.9 read/update tools unchanged. Adds the full mutation surface (creation, structural edits, sharing, collaboration) so humans can steer entirely through agent conversation. The previously planned `ap_admin_*` namespace is no longer needed — those operations are now first-class BDI tools, with the draft-status seam keeping autonomous agent creation reviewable. See [docs/MIGRATION_v1.0.md](docs/MIGRATION_v1.0.md).
 
+## UI vocabulary → data model → tools
+
+The web UI (agentplanner.io) and these tools are the same system in two languages. When a human refers to something they see on a screen, map it here:
+
+| UI term | What it is | Tools |
+|---|---|---|
+| **Workspace** | Org-scoped folder that owns goals + plans | `list_workspaces`, `create_workspace` |
+| **Blueprint** | Dehydrated, reusable plan shape; forks into a workspace | `list_blueprints`, `save_as_blueprint`, `fork_blueprint`, `delete_blueprint` |
+| **Mission / Mission Control** | Home overview: goal health, decision queue, activity | `briefing` |
+| **Goal** (a *Desire*) | What you're pursuing | `create_goal`, `derive_subgoal`, `list_goals`, `goal_state`, `update_goal` |
+| **Plan** (an *Intention*) | Committed plan of action that achieves a goal | `form_intention` (create), `extend_intention` (add nodes), `update_plan`, `update_node`, `move_node` |
+| **Knowledge / episode** (a *Belief*) | Facts the agents have learned | `add_learning`, `recall_knowledge` |
+| **Health** | Per-goal `on_track` / `at_risk` / `stale` | `briefing`, `list_goals`, `goal_state` |
+| **Tension / Contradiction** | A coherence conflict — new knowledge contradicts existing facts or tasks (UI "Tensions" card) | `plan_analysis` (coherence), `recall_knowledge` (current vs superseded facts) |
+| **Decision queue / "Awaiting you"** | Human approvals pending | `queue_decision`, `resolve_decision` |
+| **Committed vs Proposed** | A goal is *committed* once promoted (`promoted_at` set), *proposed* before | `update_goal({ committed })` |
+| **Attainment vs Execution** | *Attainment* = success criteria met; *Execution* = tasks completed. Distinct numbers. | `record_criterion_progress` (attainment), `update_task` (execution) |
+| **Critical path / Bottlenecks** | Longest blocking chain / high-fan-out incomplete tasks | `plan_analysis` |
+| **RPI chain** | Research → Plan → Implement decomposition | `propose_research_chain` |
+
 ## Principles
 
 - Tools are intent-shaped, not CRUD-shaped — name what you want to accomplish, not which row to mutate
