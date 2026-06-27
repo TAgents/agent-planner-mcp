@@ -15,6 +15,7 @@
 const express = require('express');
 const { SessionManager } = require('./session-manager');
 const { setupTools } = require('./tools');
+const { SERVER_INSTRUCTIONS } = require('./server-instructions');
 const { createApiClient } = require('./api-client');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { createOAuthMetadata, mcpAuthMetadataRouter, getOAuthProtectedResourceMetadataUrl } = require('@modelcontextprotocol/sdk/server/auth/router.js');
@@ -522,7 +523,9 @@ class MCPHTTPServer {
     }, {
       capabilities: {
         tools: {}
-      }
+      },
+      // Shown to the model on connect — the no-skill safety net (see index.js).
+      instructions: SERVER_INSTRUCTIONS
     });
 
     // Get per-session API client (bound to user's token), or create one for initialize requests

@@ -791,7 +791,10 @@ const formIntentionDefinition = {
   name: 'form_intention',
   description:
     "Create a plan that achieves a goal, including an initial phase/task " +
-    "tree, in one call. Declare execution order inline: give nodes a `ref` and " +
+    "tree, in one call. This is the canonical way to CREATE A PLAN (replaces the " +
+    "legacy quick_plan / create_plan / import_plan_markdown; inline nodes replace " +
+    "create_node / quick_task; depends_on replaces create_dependency). " +
+    "Declare execution order inline: give nodes a `ref` and " +
     "list prerequisite refs/titles in `depends_on` to create 'blocks' edges in " +
     "the same call — don't ship a bare hierarchy. The response returns a " +
     "`structure` summary and warns (`created_without_dependencies`) when a " +

@@ -8,9 +8,11 @@ const { version: MCP_VERSION } = require('../../../package.json');
 const getStartedDefinition = {
   name: 'get_started',
   description:
-    "Onboarding for new agents. Returns the BDI tool surface map and recommended " +
-    "workflows: mission control loop (Cowork), single-task session (Code/CLI), " +
-    "multi-agent claiming (OpenClaw).",
+    "Call this FIRST when you are new to AgentPlanner or unsure which tool to use " +
+    "(e.g. looking for create_plan / quick_plan — the answer is form_intention). " +
+    "Returns the live BDI tool-surface map and recommended workflows: mission " +
+    "control loop (Cowork), single-task session (Code/CLI), multi-agent claiming " +
+    "(OpenClaw). The map is derived from the actual tool set, so it can't drift.",
   inputSchema: {
     type: 'object',
     properties: {

@@ -3,6 +3,7 @@ const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { MCPHTTPServer } = require('./server-http');
 const { setupTools } = require('./tools');
+const { SERVER_INSTRUCTIONS } = require('./server-instructions');
 const { version } = require('../package.json');
 require('dotenv').config();
 
@@ -77,7 +78,10 @@ async function main() {
       }, {
         capabilities: {
           tools: {}
-        }
+        },
+        // Shown to the model on connect — the no-skill safety net mapping plain
+        // intents to the BDI tool names + pointing at get_started.
+        instructions: SERVER_INSTRUCTIONS
       });
 
       console.error('MCP Server created');

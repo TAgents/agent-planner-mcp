@@ -617,7 +617,8 @@ const planAnalysisDefinition = {
   name: 'plan_analysis',
   description:
     "Advanced plan reads: impact analysis (delay/block/remove), critical path, " +
-    "bottleneck list, or coherence check.",
+    "bottleneck list, or coherence check. Replaces the legacy analyze_impact / " +
+    "get_critical_path / run_coherence_check / check_coherence_pending tools.",
   inputSchema: {
     type: 'object',
     properties: {
