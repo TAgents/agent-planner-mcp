@@ -114,15 +114,15 @@ async function updateGoalHandler(args, apiClient) {
   // with the backend, but success_criteria must be camelCased to successCriteria
   // — the goal update schema is .strict(), so the snake_case key was rejected
   // with a 400 (the one multi-word field, hence "description writes but
-  // success_criteria fails"). Match the create shape: wrap a bare array as
-  // { criteria: [...] }.
+  // success_criteria fails"). Send the array shape directly: it is the backend's
+  // preferred form. (The old { criteria: [...] } wrap made the backend count
+  // Object.keys()==1 and skip per-criterion knowledge grounding.)
   const directFields = {};
   for (const k of ['title', 'description', 'priority', 'status']) {
     if (changes[k] !== undefined) directFields[k] = changes[k];
   }
   if (changes.success_criteria !== undefined) {
-    const sc = changes.success_criteria;
-    directFields.successCriteria = Array.isArray(sc) ? { criteria: sc } : sc;
+    directFields.successCriteria = changes.success_criteria;
   }
   // Map the public `committed` boolean onto the backend's commitment write
   // (the API still accepts the legacy goalType field and translates it to
@@ -245,7 +245,7 @@ async function deriveSubgoalHandler(args, apiClient) {
     parentGoalId: parent_goal_id,
     organizationId: parent.organization_id || parent.organizationId || undefined,
   };
-  if (success_criteria) payload.successCriteria = { criteria: success_criteria };
+  if (success_criteria) payload.successCriteria = success_criteria;
   if (typeof priority === 'number') payload.priority = priority;
 
   let goal;
@@ -318,7 +318,7 @@ async function createGoalHandler(args, apiClient) {
 
   const payload = { title, type, status };
   if (description) payload.description = description;
-  if (success_criteria) payload.successCriteria = { criteria: success_criteria };
+  if (success_criteria) payload.successCriteria = success_criteria;
   if (typeof priority === 'number') payload.priority = priority;
   if (workspace_id) payload.workspaceId = workspace_id;
 

@@ -143,7 +143,7 @@ describe('derive_subgoal tool', () => {
     expect(result.content[0].text).toMatch(/db down/);
   });
 
-  it('passes success_criteria as wrapped object', async () => {
+  it('passes success_criteria as a plain array (preferred backend shape)', async () => {
     const apiClient = makeApiClient();
     const handler = desires.handlers.derive_subgoal;
 
@@ -159,7 +159,7 @@ describe('derive_subgoal tool', () => {
 
     expect(apiClient.goals.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        successCriteria: { criteria: ['First customer signed', 'NPS > 30'] },
+        successCriteria: ['First customer signed', 'NPS > 30'],
       }),
     );
   });
@@ -196,14 +196,14 @@ describe('create_goal tool — top-level goal creation', () => {
     expect(parseResponse(result).is_draft).toBe(true);
   });
 
-  it('wraps success_criteria and forwards workspace_id', async () => {
+  it('forwards success_criteria as a plain array and forwards workspace_id', async () => {
     const apiClient = makeClient();
     await desires.handlers.create_goal(
       { title: 'G', success_criteria: ['Launched'], workspace_id: 'ws-1' },
       apiClient,
     );
     expect(apiClient.goals.create).toHaveBeenCalledWith(
-      expect.objectContaining({ successCriteria: { criteria: ['Launched'] }, workspaceId: 'ws-1' }),
+      expect.objectContaining({ successCriteria: ['Launched'], workspaceId: 'ws-1' }),
     );
   });
 
@@ -246,10 +246,12 @@ describe('update_goal tool — committed vocabulary (ring-3 alignment)', () => {
     expect(changeProps.committed).toEqual({ type: 'boolean' });
   });
 
-  it('camelCases success_criteria and wraps a bare array (backend schema is strict)', async () => {
+  it('camelCases success_criteria and sends the array shape (backend schema is strict)', async () => {
     // Regression: the handler sent snake_case success_criteria, which the strict
     // backend schema rejected with a 400 — every success_criteria write failed
-    // while same-named fields (description) succeeded.
+    // while same-named fields (description) succeeded. The array is now sent
+    // unwrapped (the backend's preferred shape); the old { criteria: [...] }
+    // wrap made the backend mis-count and skip per-criterion knowledge grounding.
     const update = jest.fn().mockResolvedValue({ id: 'g1' });
     const apiClient = { goals: { update, get: jest.fn().mockResolvedValue({ id: 'g1' }) } };
     await desires.handlers.update_goal(
@@ -258,10 +260,10 @@ describe('update_goal tool — committed vocabulary (ring-3 alignment)', () => {
     );
     const sent = update.mock.calls[0][1];
     expect(sent).not.toHaveProperty('success_criteria');
-    expect(sent.successCriteria).toEqual({ criteria: ['Ship it', 'Reach 50 users'] });
+    expect(sent.successCriteria).toEqual(['Ship it', 'Reach 50 users']);
   });
 
-  it('passes an object success_criteria through under the camelCase key', async () => {
+  it('passes a pre-shaped object success_criteria through unchanged under the camelCase key', async () => {
     const update = jest.fn().mockResolvedValue({ id: 'g1' });
     const apiClient = { goals: { update, get: jest.fn().mockResolvedValue({ id: 'g1' }) } };
     await desires.handlers.update_goal(
