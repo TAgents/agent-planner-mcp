@@ -363,12 +363,66 @@ async function createGoalHandler(args, apiClient) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// record_criterion_progress — set the current value of a measurable criterion.
+// This is the write that makes goal attainment real (metric moved 40→72).
+// ─────────────────────────────────────────────────────────────────────────
+
+const recordCriterionProgressDefinition = {
+  name: 'record_criterion_progress',
+  description:
+    "Record the latest observed value of one of a goal's success criteria " +
+    "(e.g. a metric moved 40→72). Identify the criterion by criterion_id " +
+    "(stable, like 'c0') or its 0-based index — both are visible in goal_state. " +
+    "Only measurable criteria (metric+target+direction) count toward attainment; " +
+    "this is the write that makes goal attainment real.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      goal_id: { type: 'string' },
+      criterion_id: { type: 'string', description: "Stable criterion id (e.g. 'c0'). Use this or index." },
+      index: { type: 'integer', description: '0-based position of the criterion. Alternative to criterion_id.' },
+      current: { description: 'Latest observed value (number or string). Required.' },
+    },
+    required: ['goal_id', 'current'],
+  },
+};
+
+async function recordCriterionProgressHandler(args, apiClient) {
+  const { goal_id, criterion_id, index, current } = args;
+  if (!goal_id) return errorResponse('invalid_arg', 'record_criterion_progress requires goal_id');
+  if (current === undefined) return errorResponse('invalid_arg', 'record_criterion_progress requires current');
+  if (!criterion_id && !Number.isInteger(index)) {
+    return errorResponse('invalid_arg', 'record_criterion_progress requires criterion_id or index');
+  }
+
+  const body = { current };
+  if (criterion_id) body.criterion_id = criterion_id;
+  if (Number.isInteger(index)) body.index = index;
+
+  try {
+    const result = await apiClient.goals.recordCriterionProgress(goal_id, body);
+    return formatResponse({ as_of: asOf(), goal_id, criterion: result.criterion, criteria: result.criteria });
+  } catch (err) {
+    const status = err.response?.status;
+    if (status === 404) return errorResponse('not_found', apiErrorMessage(err));
+    return errorResponse('upstream_unavailable', `record_criterion_progress failed: ${apiErrorMessage(err)}`);
+  }
+}
+
 module.exports = {
-  definitions: [listGoalsDefinition, updateGoalDefinition, createGoalDefinition, deriveSubgoalDefinition],
+  definitions: [
+    listGoalsDefinition,
+    updateGoalDefinition,
+    createGoalDefinition,
+    deriveSubgoalDefinition,
+    recordCriterionProgressDefinition,
+  ],
   handlers: {
     list_goals: listGoalsHandler,
     update_goal: updateGoalHandler,
     create_goal: createGoalHandler,
     derive_subgoal: deriveSubgoalHandler,
+    record_criterion_progress: recordCriterionProgressHandler,
   },
 };

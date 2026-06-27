@@ -42,6 +42,7 @@ AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desi
 - `update_goal` — atomic goal update; subsumes link/unlink + achiever changes
 - `create_goal` — create a new top-level goal (no parent). Agents create goals directly when asked — no UI step. Defaults to `status='active'`.
 - `derive_subgoal` *(v1.0)* — create a sub-goal under an existing parent (use `create_goal` for top-level).
+- `record_criterion_progress` — set the `current` value of a measurable success criterion (by `criterion_id` or 0-based `index`, both shown in `goal_state`). The write that drives goal attainment, e.g. "p99 latency: current 140 → 100".
 
 **Success criteria** (`success_criteria` on create/derive/update) accept either plain strings (qualitative) or structured measurable objects: `{ statement, metric?, target?, current?, unit?, direction: 'increase'|'decrease'|'boolean' }`. A criterion with **metric + target + direction** is *measurable* and counts toward goal attainment (`increase`: current ≥ target, `decrease`: current ≤ target, `boolean`: current truthy). Prefer measurable criteria — "p99 latency < 100ms" beats "make it fast".
 

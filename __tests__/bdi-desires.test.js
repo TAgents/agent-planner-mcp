@@ -306,3 +306,52 @@ describe('update_goal tool — committed vocabulary (ring-3 alignment)', () => {
     expect(body.failures[0].error).toMatch(/successCriteria: Invalid/);
   });
 });
+
+describe('record_criterion_progress tool', () => {
+  function parse(resp) {
+    if (resp.isError) return { isError: true, text: resp.content[0].text };
+    return JSON.parse(resp.content[0].text);
+  }
+
+  it('is exported and requires goal_id + current', () => {
+    const tool = desires.definitions.find((d) => d.name === 'record_criterion_progress');
+    expect(tool).toBeDefined();
+    expect(tool.inputSchema.required).toEqual(['goal_id', 'current']);
+  });
+
+  it('forwards criterion_id + current to the API and returns the updated criterion', async () => {
+    const recordCriterionProgress = jest.fn().mockResolvedValue({
+      criterion: { id: 'c0', statement: 'p99', metric: 'p99', target: 100, current: 120, direction: 'decrease' },
+      criteria: [{ id: 'c0', current: 120 }],
+    });
+    const apiClient = { goals: { recordCriterionProgress } };
+    const body = parse(await desires.handlers.record_criterion_progress(
+      { goal_id: 'g1', criterion_id: 'c0', current: 120 }, apiClient,
+    ));
+    expect(recordCriterionProgress).toHaveBeenCalledWith('g1', { current: 120, criterion_id: 'c0' });
+    expect(body.criterion.current).toBe(120);
+  });
+
+  it('forwards index when criterion_id is absent', async () => {
+    const recordCriterionProgress = jest.fn().mockResolvedValue({ criterion: { id: 'c2', current: 5 }, criteria: [] });
+    const apiClient = { goals: { recordCriterionProgress } };
+    await desires.handlers.record_criterion_progress({ goal_id: 'g1', index: 2, current: 5 }, apiClient);
+    expect(recordCriterionProgress).toHaveBeenCalledWith('g1', { current: 5, index: 2 });
+  });
+
+  it('rejects when neither criterion_id nor index is given', async () => {
+    const apiClient = { goals: { recordCriterionProgress: jest.fn() } };
+    const res = await desires.handlers.record_criterion_progress({ goal_id: 'g1', current: 1 }, apiClient);
+    expect(res.isError).toBe(true);
+    expect(apiClient.goals.recordCriterionProgress).not.toHaveBeenCalled();
+  });
+
+  it('maps a 404 to a clear not_found error', async () => {
+    const err = new Error('404');
+    err.response = { status: 404, data: { error: "No criterion with id 'c9'" } };
+    const apiClient = { goals: { recordCriterionProgress: jest.fn().mockRejectedValue(err) } };
+    const res = await desires.handlers.record_criterion_progress({ goal_id: 'g1', criterion_id: 'c9', current: 1 }, apiClient);
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/c9/);
+  });
+});

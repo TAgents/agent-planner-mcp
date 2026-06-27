@@ -592,6 +592,11 @@ const goals = {
     return response.data;
   },
 
+  recordCriterionProgress: async (goalId, body) => {
+    const response = await apiClient.post(`/goals/${goalId}/criteria/progress`, body);
+    return response.data;
+  },
+
   // v2 goal-dependency endpoints
   getPath: async (goalId, maxDepth) => {
     const params = maxDepth ? `?max_depth=${maxDepth}` : '';

@@ -41,7 +41,7 @@ async function getStartedHandler(args, apiClient) {
       "Each tool answers one whole agentic question and returns an `as_of` timestamp.",
     tools_by_namespace: {
       beliefs: ['briefing', 'list_plans', 'task_context', 'goal_state', 'recall_knowledge', 'search', 'plan_analysis'],
-      desires: ['list_goals', 'create_goal', 'update_goal', 'derive_subgoal'],
+      desires: ['list_goals', 'create_goal', 'update_goal', 'derive_subgoal', 'record_criterion_progress'],
       intentions: ['form_intention', 'extend_intention', 'link_intentions', 'propose_research_chain', 'claim_next_task', 'update_task', 'update_node', 'release_task', 'queue_decision', 'resolve_decision', 'add_learning'],
       workspaces: ['list_workspaces', 'create_workspace', 'list_blueprints', 'fork_blueprint', 'save_as_blueprint', 'delete_blueprint'],
     },
