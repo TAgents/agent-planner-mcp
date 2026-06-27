@@ -961,19 +961,22 @@ async function formIntentionHandler(args, apiClient) {
     }
   }
 
-  // 3. Link plan to goal (best-effort).
+  // 3. Create tree (top-level children parent to root via omitted parent_id).
+  const nodeResults = [];
+  const ctx = { refMap: new Map(), titleMap: new Map(), edgeIntents: [] };
+  await createSubtree(apiClient, plan.id, null, tree, nodeResults, ctx);
+
+  // 4. Link plan to goal (best-effort) — AFTER the tree exists. The link
+  // endpoint cascades 'achieves' edges to all CURRENT task nodes, so linking
+  // before node creation wired zero achievers (goal_state then showed empty
+  // linked_tasks and fell back to coarse linked-plan stats). Order matters.
   try {
     await apiClient.goals.linkPlan(goal_id, plan.id);
   } catch (err) {
     // Non-fatal — plan exists, link can be retried by user.
   }
 
-  // 3. Create tree (top-level children parent to root via omitted parent_id).
-  const nodeResults = [];
-  const ctx = { refMap: new Map(), titleMap: new Map(), edgeIntents: [] };
-  await createSubtree(apiClient, plan.id, null, tree, nodeResults, ctx);
-
-  // 4. Wire inline dependency edges. depends_on:[X] on N means X blocks N.
+  // 5. Wire inline dependency edges. depends_on:[X] on N means X blocks N.
   const resolveRef = (ref) => {
     if (ctx.refMap.has(ref)) return ctx.refMap.get(ref);
     const byTitle = ctx.titleMap.get(ref);
