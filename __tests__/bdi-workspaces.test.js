@@ -31,6 +31,7 @@ function makeApiClient(overrides = {}) {
         visibility: 'private',
         payload: { nodes: [{ key: 'n0' }, { key: 'n1' }, { key: 'n2' }], dependencies: [{ source_key: 'n1', target_key: 'n2' }] },
       }),
+      delete: jest.fn().mockResolvedValue(''),
       ...overrides.blueprints,
     },
   };
@@ -152,11 +153,38 @@ describe('save_as_blueprint', () => {
   });
 });
 
+describe('delete_blueprint', () => {
+  it('deletes a blueprint by id', async () => {
+    const api = makeApiClient();
+    const res = await workspaces.handlers.delete_blueprint({ blueprint_id: BP_ID }, api);
+    const parsed = parse(res);
+    expect(api.blueprints.delete).toHaveBeenCalledWith(BP_ID);
+    expect(parsed.deleted).toBe(true);
+    expect(parsed.blueprint_id).toBe(BP_ID);
+  });
+
+  it('requires blueprint_id', async () => {
+    const api = makeApiClient();
+    const res = await workspaces.handlers.delete_blueprint({}, api);
+    expect(res.isError).toBe(true);
+    expect(api.blueprints.delete).not.toHaveBeenCalled();
+  });
+
+  it('maps a 403 to a clear owner-only error', async () => {
+    const err = new Error('Request failed with status code 403');
+    err.response = { status: 403, data: { error: 'Only the owner can delete a blueprint' } };
+    const api = makeApiClient({ blueprints: { delete: jest.fn().mockRejectedValue(err) } });
+    const res = await workspaces.handlers.delete_blueprint({ blueprint_id: BP_ID }, api);
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/owner/i);
+  });
+});
+
 describe('definitions', () => {
-  it('exports 5 tools wired into the bdi index', () => {
+  it('exports 6 tools wired into the bdi index', () => {
     const { bdiToolDefinitions } = require('../src/tools/bdi');
     const names = bdiToolDefinitions.map((t) => t.name);
-    for (const name of ['list_workspaces', 'create_workspace', 'list_blueprints', 'fork_blueprint', 'save_as_blueprint']) {
+    for (const name of ['list_workspaces', 'create_workspace', 'list_blueprints', 'fork_blueprint', 'save_as_blueprint', 'delete_blueprint']) {
       expect(names).toContain(name);
     }
   });

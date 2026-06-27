@@ -83,6 +83,7 @@ A Workspace is a folder under an Organization that owns goals + plans — a grou
 - `list_blueprints` — list blueprints visible to user (owned + public/unlisted), filterable by scope
 - `fork_blueprint` — instantiate a plan-scope blueprint as a new plan in a target workspace
 - `save_as_blueprint` — snapshot a live plan as a reusable blueprint. Captures structure, agent_instructions, and dependencies; excludes statuses, claims, knowledge episodes, logs, decisions, and agent assignments
+- `delete_blueprint` — delete a blueprint you own (hard delete; already-forked plans are unaffected)
 
 ### Utility
 

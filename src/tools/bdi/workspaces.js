@@ -8,7 +8,7 @@
  * agent-planner/docs/WORKSPACE_BLUEPRINT_SKETCH.md for the design.
  */
 
-const { asOf, formatResponse, errorResponse, safeArray } = require('./_shared');
+const { asOf, formatResponse, errorResponse, safeArray, apiErrorMessage } = require('./_shared');
 
 // ─── Workspaces ──────────────────────────────────────────────────
 
@@ -197,6 +197,37 @@ async function saveAsBlueprintHandler(args, apiClient) {
   }
 }
 
+const deleteBlueprintDefinition = {
+  name: 'delete_blueprint',
+  description:
+    "Delete a blueprint you own. Hard delete (the snapshot is removed); plans " +
+    "already forked from it are unaffected. Owner-only. Completes the blueprint " +
+    "lifecycle alongside save_as_blueprint and fork_blueprint.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      blueprint_id: { type: 'string' },
+    },
+    required: ['blueprint_id'],
+  },
+};
+
+async function deleteBlueprintHandler(args, apiClient) {
+  const { blueprint_id } = args;
+  if (!blueprint_id) {
+    return errorResponse('invalid_arg', 'delete_blueprint requires blueprint_id');
+  }
+  try {
+    await apiClient.blueprints.delete(blueprint_id);
+    return formatResponse({ as_of: asOf(), blueprint_id, deleted: true });
+  } catch (err) {
+    const status = err.response?.status;
+    if (status === 404) return errorResponse('not_found', `Blueprint ${blueprint_id} not found`);
+    if (status === 403) return errorResponse('forbidden', 'Only the owner can delete this blueprint');
+    return errorResponse('upstream_unavailable', `delete_blueprint failed: ${apiErrorMessage(err)}`);
+  }
+}
+
 module.exports = {
   definitions: [
     listWorkspacesDefinition,
@@ -204,6 +235,7 @@ module.exports = {
     listBlueprintsDefinition,
     forkBlueprintDefinition,
     saveAsBlueprintDefinition,
+    deleteBlueprintDefinition,
   ],
   handlers: {
     list_workspaces: listWorkspacesHandler,
@@ -211,5 +243,6 @@ module.exports = {
     list_blueprints: listBlueprintsHandler,
     fork_blueprint: forkBlueprintHandler,
     save_as_blueprint: saveAsBlueprintHandler,
+    delete_blueprint: deleteBlueprintHandler,
   },
 };
