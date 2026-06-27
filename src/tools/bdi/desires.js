@@ -9,6 +9,35 @@
 
 const { asOf, formatResponse, errorResponse, safeArray, apiErrorMessage } = require('./_shared');
 
+// Success criteria accept plain strings (qualitative) or structured measurable
+// units. A criterion with metric+target+direction becomes "measurable" and
+// drives goal attainment (see the backend's goalCriteria.normalizeCriteria,
+// which also maps legacy string[] / {criteria:[]} shapes onto this).
+const SUCCESS_CRITERIA_SCHEMA = {
+  type: 'array',
+  description:
+    "Each entry is a plain string (qualitative) OR a structured object " +
+    "{ statement, metric?, target?, current?, unit?, direction: 'increase'|'decrease'|'boolean' }. " +
+    "Give a criterion metric+target+direction to make it measurable so it counts toward goal attainment.",
+  items: {
+    oneOf: [
+      { type: 'string' },
+      {
+        type: 'object',
+        required: ['statement'],
+        properties: {
+          statement: { type: 'string', description: 'Human-readable condition.' },
+          metric: { type: 'string', description: 'What is measured, e.g. "p99 latency".' },
+          target: { description: 'Goal value (number or string).' },
+          current: { description: 'Latest observed value (number or string).' },
+          unit: { type: 'string', description: 'e.g. "ms", "%", "customers".' },
+          direction: { type: 'string', enum: ['increase', 'decrease', 'boolean'] },
+        },
+      },
+    ],
+  },
+};
+
 const listGoalsDefinition = {
   name: 'list_goals',
   description:
@@ -93,7 +122,7 @@ const updateGoalDefinition = {
           // Commitment: true once the goal is promoted to active execution
           // (replaces the old desire/intention goal_type vocabulary).
           committed: { type: 'boolean' },
-          success_criteria: {},
+          success_criteria: SUCCESS_CRITERIA_SCHEMA,
           add_linked_plans: { type: 'array', items: { type: 'string' } },
           remove_linked_plans: { type: 'array', items: { type: 'string' } },
           add_achievers: { type: 'array', items: { type: 'string' } },
@@ -210,11 +239,7 @@ const deriveSubgoalDefinition = {
         default: 'active',
         description: "Default 'active' for human-directed creation. Pass 'draft' when acting autonomously without explicit user direction.",
       },
-      success_criteria: {
-        type: 'array',
-        items: { type: 'string' },
-        description: "Concrete, observable conditions that mark this sub-goal achieved.",
-      },
+      success_criteria: SUCCESS_CRITERIA_SCHEMA,
       priority: { type: 'integer', default: 0 },
     },
     required: ['parent_goal_id', 'title', 'rationale'],
@@ -301,11 +326,7 @@ const createGoalDefinition = {
         default: 'active',
         description: "Default 'active' (live). Pass 'draft' to propose without activating.",
       },
-      success_criteria: {
-        type: 'array',
-        items: { type: 'string' },
-        description: "Concrete, observable conditions that mark this goal achieved.",
-      },
+      success_criteria: SUCCESS_CRITERIA_SCHEMA,
       priority: { type: 'integer', minimum: 0, maximum: 10, default: 0 },
       workspace_id: { type: 'string', description: "Optional. Target workspace; defaults to the active org's default workspace." },
     },

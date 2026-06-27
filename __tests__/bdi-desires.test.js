@@ -207,6 +207,27 @@ describe('create_goal tool — top-level goal creation', () => {
     );
   });
 
+  it('passes structured (measurable) criteria objects through unchanged', async () => {
+    const apiClient = makeClient();
+    const criteria = [
+      { statement: 'p99 latency under target', metric: 'p99_latency_ms', target: 100, current: 140, unit: 'ms', direction: 'decrease' },
+      'a plain qualitative criterion',
+    ];
+    await desires.handlers.create_goal({ title: 'G', success_criteria: criteria }, apiClient);
+    expect(apiClient.goals.create.mock.calls[0][0].successCriteria).toEqual(criteria);
+  });
+
+  it('exposes a success_criteria schema accepting strings or structured objects', () => {
+    const tool = desires.definitions.find((d) => d.name === 'create_goal');
+    const itemSchema = tool.inputSchema.properties.success_criteria.items;
+    expect(itemSchema.oneOf).toEqual(
+      expect.arrayContaining([
+        { type: 'string' },
+        expect.objectContaining({ type: 'object', required: ['statement'] }),
+      ]),
+    );
+  });
+
   it('surfaces upstream create failures', async () => {
     const apiClient = { goals: { create: jest.fn().mockRejectedValue({ response: { data: { error: 'db down' } } }) } };
     const result = await desires.handlers.create_goal({ title: 'G' }, apiClient);
