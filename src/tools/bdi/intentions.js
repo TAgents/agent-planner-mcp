@@ -1371,7 +1371,11 @@ const updatePlanDefinition = {
       description: { type: 'string' },
       status: {
         type: 'string',
-        enum: ['draft', 'active', 'completed', 'archived'],
+        enum: ['draft', 'active', 'archived'],
+        description:
+          "Commitment lifecycle. 'completed' cannot be set — it is derived " +
+          "automatically when the plan's work reaches 100%. To close out a " +
+          "plan early, archive it.",
       },
       visibility: { type: 'string', enum: ['private', 'unlisted', 'public'] },
       metadata: { type: 'object', description: "Shallow-merged into existing metadata." },

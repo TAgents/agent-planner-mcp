@@ -83,8 +83,8 @@ The single most important decision when calling a creation tool.
 
 | Origin | Default | Why |
 |---|---|---|
-| **Human said so in chat** | `status='active'` (omit) | User already approved by asking. Don't bury their request in drafts. |
-| **You're acting autonomously** | `status='draft'` (pass explicitly) | Let the human review before it activates. Drafts surface in the dashboard pending queue. |
+| **Human said so in chat** | `status='active'` (pass explicitly) | User already approved by asking. Don't bury their request in drafts. |
+| **You're acting autonomously** | `status='draft'` (the default — just omit) | Let the human review before it activates. Drafts surface in the dashboard pending queue. |
 | **You're uncertain** | use `queue_decision` instead | Drafts are for "I'm proposing structure"; the queue is for "I need an answer." |
 
 Draft plans are a hard gate: task status changes and claims on a draft are rejected (409) until a human activates it — activate via `update_plan({status: 'active'})` (or ask the human / `queue_decision`). Plan completion is derived: a plan reads as `completed` automatically when its work hits 100%; it cannot be set directly.

@@ -173,15 +173,16 @@ v1.0 closes the creation gap. There are three distinct flows depending on who in
 
 ### Scenario A: Human directs you in conversation
 
-User says "create a plan to ship the new auth flow under the security goal" or "mark the BSL launch plan completed."
+User says "create a plan to ship the new auth flow under the security goal."
 
-Default to **`status='active'`** — the human asked for it, just do it.
+Pass **`status='active'` explicitly** — the human asked for it, just do it. (The default is `draft`: omitting status creates a proposal that waits for human activation.)
 
 ```
 form_intention({
   goal_id: '<security-goal-id>',
   title: 'Ship new auth flow',
   rationale: 'User-requested plan to migrate auth to passkeys',
+  status: 'active', // human-directed — omit for autonomous proposals (draft)
   tree: [
     { node_type: 'phase', title: 'Discovery', children: [
       { ref: 'research', title: 'Research passkey libraries', task_mode: 'research' },
@@ -196,10 +197,9 @@ form_intention({
 // return created_without_dependencies + a warning instead.
 ```
 
-```
-update_plan({ plan_id: '<bsl-plan>', status: 'completed' })
-// Done. No queue, no UI trip.
-```
+Completion is not a write: a plan reads as `completed` automatically once its
+work hits 100% (`update_plan({status: 'completed'})` is rejected). To close out
+a plan that won't be finished, archive it: `update_plan({ plan_id, status: 'archived' })`.
 
 ### Scenario B: You're acting autonomously (scheduled loop, etc.)
 
