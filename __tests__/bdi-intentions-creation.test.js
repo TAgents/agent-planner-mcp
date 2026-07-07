@@ -72,13 +72,14 @@ describe('form_intention tool', () => {
     // Visibility is NOT in createPlan payload — backend's createPlan schema is
     // .strict() and rejects unknown fields. Non-default visibility goes through
     // updateVisibility separately.
+    // Draft by default — a proposal awaiting human activation.
     expect(client.plans.createPlan).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'P1', status: 'active' }),
+      expect.objectContaining({ title: 'P1', status: 'draft' }),
     );
     expect(client.goals.linkPlan).toHaveBeenCalledWith(GOAL_ID, PLAN_ID);
   });
 
-  it('defaults status to active and creates a flat tree', async () => {
+  it('defaults status to draft and creates a flat tree', async () => {
     const client = makeApiClient();
     const handler = intentions.handlers.form_intention;
 

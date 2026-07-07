@@ -87,7 +87,7 @@ The single most important decision when calling a creation tool.
 | **You're acting autonomously** | `status='draft'` (pass explicitly) | Let the human review before it activates. Drafts surface in the dashboard pending queue. |
 | **You're uncertain** | use `queue_decision` instead | Drafts are for "I'm proposing structure"; the queue is for "I need an answer." |
 
-Drafts auto-promote to active when work begins on any node (transitions to `in_progress`, `completed`, `blocked`, `plan_ready`). Promote explicitly via `update_plan({status: 'active'})` or `update_goal({status: 'active'})`.
+Draft plans are a hard gate: task status changes and claims on a draft are rejected (409) until a human activates it — activate via `update_plan({status: 'active'})` (or ask the human / `queue_decision`). Plan completion is derived: a plan reads as `completed` automatically when its work hits 100%; it cannot be set directly.
 
 ## Workflow templates
 

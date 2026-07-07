@@ -798,10 +798,12 @@ const formIntentionDefinition = {
     "list prerequisite refs/titles in `depends_on` to create 'blocks' edges in " +
     "the same call — don't ship a bare hierarchy. The response returns a " +
     "`structure` summary and warns (`created_without_dependencies`) when a " +
-    "multi-task plan has no edges. Defaults to status='active' for " +
-    "human-directed creation; pass status='draft' for autonomous loops so a " +
-    "human can review before promotion. Drafts surface in the dashboard " +
-    "pending queue and auto-promote to active when work begins on any node.",
+    "multi-task plan has no edges. Defaults to status='draft': a draft is a " +
+    "proposal — it surfaces in the human's pending queue, and task execution " +
+    "and claims are rejected until a human activates it. Pass status='active' " +
+    "ONLY when a human explicitly directed this plan and wants work to start " +
+    "immediately. Plan completion is derived from task completion — plans " +
+    "read as 'completed' automatically at 100%; it cannot be set directly.",
   inputSchema: {
     type: 'object',
     properties: {
@@ -812,7 +814,7 @@ const formIntentionDefinition = {
       status: {
         type: 'string',
         enum: ['draft', 'active'],
-        default: 'active',
+        default: 'draft',
       },
       visibility: {
         type: 'string',
@@ -888,7 +890,7 @@ async function createSubtree(apiClient, planId, parentId, children, results, ctx
 }
 
 async function formIntentionHandler(args, apiClient) {
-  const { goal_id, title, description, rationale, status = 'active', visibility = 'private', tree = [] } = args;
+  const { goal_id, title, description, rationale, status = 'draft', visibility = 'private', tree = [] } = args;
 
   if (apiClient.agentLoop?.createIntention) {
     const treeError = validateTreeShape(tree);
@@ -1055,7 +1057,7 @@ const extendIntentionDefinition = {
     "Add children under an existing phase or task. Use when an agent has " +
     "implicit authority to decompose work (e.g., a parent task they have " +
     "claimed). For high-stakes structural proposals, use queue_decision " +
-    "with proposed_subtasks instead. Defaults to status='active'.",
+    "with proposed_subtasks instead.",
   inputSchema: {
     type: 'object',
     properties: {
@@ -1126,7 +1128,7 @@ const proposeResearchChainDefinition = {
     "Create a Research → Plan → Implement triple under an existing parent " +
     "task or phase. The Research task feeds Plan; Plan feeds Implement " +
     "(via 'blocks' dependency edges). Use when tackling work with " +
-    "significant unknowns. Defaults to status='active'.",
+    "significant unknowns.",
   inputSchema: {
     type: 'object',
     properties: {

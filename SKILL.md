@@ -215,7 +215,8 @@ derive_subgoal({
   status: 'draft',
 })
 // Surfaces in dashboard pending. Human approves via update_goal({status: 'active'})
-// or in the UI. Plans auto-promote to active when first task moves to in_progress.
+// or in the UI. Draft plans reject task execution and claims (409) until activated;
+// completion is derived — a plan reads as completed when its work hits 100%.
 ```
 
 ### Scenario C: You're uncertain and want explicit input
