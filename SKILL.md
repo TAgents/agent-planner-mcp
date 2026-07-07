@@ -215,8 +215,10 @@ derive_subgoal({
   status: 'draft',
 })
 // Surfaces in dashboard pending. Human approves via update_goal({status: 'active'})
-// or in the UI. Draft plans reject task execution and claims (409) until activated;
-// completion is derived — a plan reads as completed when its work hits 100%.
+// or in the UI. Draft plans reject task execution and claims (409) until activated.
+// If the human later directs you to proceed, activate it yourself:
+// update_plan({status: 'active'}) — the gate makes activation explicit, not human-only.
+// Completion is derived — a plan reads as completed when its work hits 100%.
 ```
 
 ### Scenario C: You're uncertain and want explicit input

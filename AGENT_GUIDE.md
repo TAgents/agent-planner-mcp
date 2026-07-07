@@ -87,7 +87,7 @@ The single most important decision when calling a creation tool.
 | **You're acting autonomously** | `status='draft'` (the default — just omit) | Let the human review before it activates. Drafts surface in the dashboard pending queue. |
 | **You're uncertain** | use `queue_decision` instead | Drafts are for "I'm proposing structure"; the queue is for "I need an answer." |
 
-Draft plans are a hard gate: task status changes and claims on a draft are rejected (409) until a human activates it — activate via `update_plan({status: 'active'})` (or ask the human / `queue_decision`). Plan completion is derived: a plan reads as `completed` automatically when its work hits 100%; it cannot be set directly.
+Draft plans are a hard gate: task status changes and claims on a draft are rejected (409) until the plan is activated. **You can activate it yourself** — `update_plan({status: 'active'})` — whenever a human directed the work (in chat, in the task's instructions, or by assigning it to you). The gate exists to make activation an explicit, auditable step, not to route everything through the UI. Only when you're acting autonomously with no human direction should you leave it draft and `queue_decision` to request activation. Plan completion is derived: a plan reads as `completed` automatically when its work hits 100%; it cannot be set directly.
 
 ## Workflow templates
 

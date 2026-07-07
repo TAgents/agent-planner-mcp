@@ -800,10 +800,14 @@ const formIntentionDefinition = {
     "`structure` summary and warns (`created_without_dependencies`) when a " +
     "multi-task plan has no edges. Defaults to status='draft': a draft is a " +
     "proposal — it surfaces in the human's pending queue, and task execution " +
-    "and claims are rejected until a human activates it. Pass status='active' " +
-    "ONLY when a human explicitly directed this plan and wants work to start " +
-    "immediately. Plan completion is derived from task completion — plans " +
-    "read as 'completed' automatically at 100%; it cannot be set directly.",
+    "and claims are rejected (409) until the plan is activated. Pass " +
+    "status='active' when a human directed this plan in conversation and " +
+    "wants work to start immediately; you may also activate a draft later " +
+    "via update_plan(status='active') on the same basis. Acting " +
+    "autonomously with no human direction? Leave it draft and " +
+    "queue_decision to request activation. Plan completion is derived from " +
+    "task completion — plans read as 'completed' automatically at 100%; it " +
+    "cannot be set directly.",
   inputSchema: {
     type: 'object',
     properties: {
