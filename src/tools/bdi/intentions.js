@@ -739,11 +739,25 @@ async function addLearningHandler(args, apiClient) {
         source_description: source_description || 'BDI add_learning',
       },
     });
+    // The API returns the identifier as top-level `episode_id` and never null:
+    // when Graphiti's async add_memory yields no uuid it mints a `pending:`
+    // correlation id instead. Reading only result.episode.uuid — which is the
+    // raw bridge payload, and empty on the async path — is what made every
+    // add_learning call report episode_id: null while the write had in fact
+    // landed. Keep the older shapes as fallbacks for self-hosted backends.
+    const episodeId = result.episode_id || result.episode?.uuid || result.uuid || null;
+    const pending = result.pending === true || String(episodeId || '').startsWith('pending:');
     return formatResponse({
       as_of: asOf(),
-      episode_id: result.episode?.uuid || result.uuid || null,
+      episode_id: episodeId,
+      // True means the id is a local correlation id, not the Graphiti uuid:
+      // the episode is queued for ingestion. Say so rather than implying the
+      // write is fully settled.
+      pending,
       coherence_warnings: result.coherence_warnings || [],
-      message: result.message || 'Knowledge recorded',
+      message:
+        result.message
+        || (pending ? 'Knowledge queued for ingestion' : 'Knowledge recorded'),
     });
   } catch (err) {
     return errorResponse('upstream_unavailable', `add_learning failed: ${err.response?.data?.error || err.message}`);
