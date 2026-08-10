@@ -95,3 +95,43 @@ describe('add_learning episode_id', () => {
     expect(out.coherence_warnings).toEqual([warning]);
   });
 });
+
+describe('add_learning scope linkage', () => {
+  it('reports what actually landed for a scoped write', async () => {
+    const client = clientReturning({
+      episode_id: 'pending:x',
+      pending: true,
+      ingestion_status: 'queued',
+      links_created: [{ node_id: 'n1', link_type: 'informs' }],
+      links_failed: [],
+    });
+
+    const out = parseResponse(await handler({ content: 'x', scope: { plan_id: 'p1' } }, client));
+
+    expect(out.links_created).toEqual([{ node_id: 'n1', link_type: 'informs' }]);
+    expect(out.ingestion_status).toBe('queued');
+  });
+
+  it('refuses to call a write successful when its scope link failed', async () => {
+    const client = clientReturning({
+      episode_id: 'pending:x',
+      pending: true,
+      links_created: [],
+      links_failed: [{ plan_id: 'p1', reason: 'plan has no root node to attach to' }],
+    });
+
+    const out = parseResponse(await handler({ content: 'x', scope: { plan_id: 'p1' } }, client));
+
+    expect(out.message).toMatch(/NOT retrievable by that scope/);
+    expect(out.links_failed).toHaveLength(1);
+  });
+
+  it('omits link fields entirely for an unscoped write', async () => {
+    const out = parseResponse(
+      await handler({ content: 'x' }, clientReturning({ episode_id: 'pending:x', pending: true })),
+    );
+
+    expect(out).not.toHaveProperty('links_created');
+    expect(out).not.toHaveProperty('links_failed');
+  });
+});

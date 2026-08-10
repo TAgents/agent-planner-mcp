@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "agent-planner",
   "display_name": "AgentPlanner",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "AgentPlanner MCP server — full BDI-aligned tool surface for agentic planning, decisions, knowledge, creation, and structural mutation.",
   "long_description": "Connect Claude to AgentPlanner with a focused 24-tool BDI surface organized by Belief / Desire / Intention namespaces. Each tool answers one whole agentic question and returns an `as_of` timestamp. v1.0.0 completes the mutation surface — humans can steer entirely through agent conversation (create, edit, share, archive plans/goals/tasks) without leaving the chat. Built for Cowork live artifacts, Claude Code sessions, and OpenClaw multi-agent VMs. See MIGRATION_v1.0.md for what changed from v0.9.",
   "author": {
@@ -30,7 +30,9 @@
     "entry_point": "src/index.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/src/index.js"],
+      "args": [
+        "${__dirname}/src/index.js"
+      ],
       "env": {
         "API_URL": "${user_config.api_url}",
         "USER_API_TOKEN": "${user_config.api_token}",
@@ -57,7 +59,11 @@
   },
   "compatibility": {
     "claude_desktop": ">=0.10.0",
-    "platforms": ["darwin", "win32", "linux"],
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
     "runtimes": {
       "node": ">=16.0.0"
     }

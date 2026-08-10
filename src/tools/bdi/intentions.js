@@ -747,6 +747,13 @@ async function addLearningHandler(args, apiClient) {
     // landed. Keep the older shapes as fallbacks for self-hosted backends.
     const episodeId = result.episode_id || result.episode?.uuid || result.uuid || null;
     const pending = result.pending === true || String(episodeId || '').startsWith('pending:');
+    // A scoped write IS its link row — Graphiti stores no plan/goal metadata,
+    // so scope only ever exists in Postgres. Surface what actually landed
+    // instead of letting a silently-failed link read as a successful write.
+    const linksCreated = Array.isArray(result.links_created) ? result.links_created : [];
+    const linksFailed = Array.isArray(result.links_failed) ? result.links_failed : [];
+    const scopeRequested = Boolean(scope.plan_id || scope.node_id);
+
     return formatResponse({
       as_of: asOf(),
       episode_id: episodeId,
@@ -754,10 +761,16 @@ async function addLearningHandler(args, apiClient) {
       // the episode is queued for ingestion. Say so rather than implying the
       // write is fully settled.
       pending,
+      ingestion_status: result.ingestion_status || (pending ? 'queued' : 'complete'),
+      // Only meaningful when the caller asked for a scope; omitted otherwise so
+      // an unscoped write doesn't look like it lost something.
+      ...(scopeRequested ? { links_created: linksCreated, links_failed: linksFailed } : {}),
       coherence_warnings: result.coherence_warnings || [],
       message:
-        result.message
-        || (pending ? 'Knowledge queued for ingestion' : 'Knowledge recorded'),
+        linksFailed.length > 0
+          ? `Episode written but ${linksFailed.length} scope link(s) failed — this write is NOT retrievable by that scope`
+          : result.message
+            || (pending ? 'Knowledge queued for ingestion' : 'Knowledge recorded'),
     });
   } catch (err) {
     return errorResponse('upstream_unavailable', `add_learning failed: ${err.response?.data?.error || err.message}`);
