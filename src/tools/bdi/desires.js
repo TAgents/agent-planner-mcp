@@ -41,7 +41,7 @@ const SUCCESS_CRITERIA_SCHEMA = {
 const listGoalsDefinition = {
   name: 'list_goals',
   description:
-    "List goals with health rollup. Returns aggregate counts (on_track/at_risk/stale) " +
+    "List goals with health rollup. Returns aggregate counts (new/on_track/at_risk/stale) " +
     "plus per-goal summary.",
   inputSchema: {
     type: 'object',
@@ -49,7 +49,7 @@ const listGoalsDefinition = {
       filter: {
         type: 'object',
         properties: {
-          health: { type: 'array', items: { type: 'string', enum: ['on_track', 'at_risk', 'stale'] } },
+          health: { type: 'array', items: { type: 'string', enum: ['new', 'on_track', 'at_risk', 'stale'] } },
           status: { type: 'array', items: { type: 'string' } },
           workspace_id: { type: 'string', description: 'Scope to goals inside a single workspace' },
           include_inactive: { type: 'boolean', default: false },
@@ -94,7 +94,7 @@ async function listGoalsHandler(args, apiClient) {
         acc.total += 1;
         return acc;
       },
-      { on_track: 0, at_risk: 0, stale: 0, total: 0 }
+      { new: 0, on_track: 0, at_risk: 0, stale: 0, total: 0 }
     );
 
     return formatResponse({ as_of: asOf(), summary, goals: merged });

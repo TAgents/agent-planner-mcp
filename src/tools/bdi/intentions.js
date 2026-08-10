@@ -13,7 +13,7 @@
  * See ../../../docs/MCP_v1.0_FULL_SURFACE.md for design rationale.
  */
 
-const { asOf, formatResponse, errorResponse, apiErrorMessage, isV1Unavailable, planUrl } = require('./_shared');
+const { asOf, formatResponse, errorResponse, apiErrorMessage, isV1Unavailable, planUrl, activePlanNextStep } = require('./_shared');
 const { version: PKG_VERSION } = require('../../../package.json');
 
 // Provenance tag stamped onto every plan this server creates, so a plan stays
@@ -923,7 +923,7 @@ async function formIntentionHandler(args, apiClient) {
         nodes_created: Array.isArray(result.tree) ? countTreeNodes(result.tree) : undefined,
         next_step: (result.plan?.status || status) === 'draft'
           ? "Plan created as draft. Will surface in dashboard pending for human review. Auto-promotes to active when first task moves to in_progress."
-          : `Plan active. Claim a task with claim_next_task({plan_id}) to begin work. Shareable link: ${planUrl(facadePlanId)} (set visibility:'unlisted' for a rich Slack/social preview).`,
+          : activePlanNextStep(facadePlanId),
       });
     } catch {
       // Fall through to the legacy multi-call path for older/self-hosted APIs.
@@ -1039,7 +1039,7 @@ async function formIntentionHandler(args, apiClient) {
     structure,
     next_step: plan.status === 'draft'
       ? "Plan created as draft. Will surface in dashboard pending for human review. Auto-promotes to active when first task moves to in_progress."
-      : `Plan active. Claim a task with claim_next_task({plan_id}) to begin work. Shareable link: ${planUrl(plan.id)} (set visibility:'unlisted' for a rich Slack/social preview).`,
+      : activePlanNextStep(plan.id),
   };
   if (createdWithoutDependencies) {
     response.warning =
