@@ -103,7 +103,7 @@ async function briefingHandler(args, apiClient) {
       acc.total += 1;
       return acc;
     },
-    { on_track: 0, at_risk: 0, stale: 0, total: 0 }
+    { new: 0, on_track: 0, at_risk: 0, stale: 0, total: 0 }
   );
 
   let decisions = safeArray(pending.decisions);
