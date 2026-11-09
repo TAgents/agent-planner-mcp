@@ -79,13 +79,11 @@ class MCPHTTPServer {
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: false }));
 
-    // Logging middleware — log the request and, on finish, the status (+ the
-    // redirect target for 3xx, which is critical for debugging the OAuth flow).
+    // Log paths/status only; OAuth redirect URLs contain codes and state.
     this.app.use((req, res, next) => {
       console.error(`${req.method} ${req.path} - ${req.get('MCP-Protocol-Version') || 'no version'}`);
       res.on('finish', () => {
-        const loc = res.getHeader('location');
-        console.error(`  ↳ ${req.method} ${req.path} → ${res.statusCode}${loc ? ` Location=${loc}` : ''}`);
+        console.error(`  ↳ ${req.method} ${req.path} → ${res.statusCode}`);
       });
       next();
     });
@@ -125,6 +123,7 @@ class MCPHTTPServer {
     oauthRouter.use('/authorize', authorizationHandler({ provider: this.oauthProvider }));
     oauthRouter.use('/token', tokenHandler({ provider: this.oauthProvider }));
     oauthRouter.post('/consent', makeConsentHandler({ store: this.oauthStore, apiUrl: this.apiUrl }));
+    oauthRouter.get('/consent-info', makeConsentHandler({ store: this.oauthStore, apiUrl: this.apiUrl, infoOnly: true }));
     oauthRouter.use('/register', clientRegistrationHandler({ clientsStore: this.oauthProvider.clientsStore }));
     // Revocation only if the provider supports it. Access tokens are stateless
     // AP JWTs (no denylist), so we don't — and the metadata omits the endpoint.

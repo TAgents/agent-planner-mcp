@@ -11,7 +11,6 @@
  * oauth_refresh_tokens table. Revoking it kills the connection within the
  * access-token TTL. No AP credential is stored at rest.
  */
-const { renderConsentPage } = require('./consent');
 
 class ApOAuthProvider {
   constructor({ store }) {
@@ -23,18 +22,20 @@ class ApOAuthProvider {
     };
   }
 
-  // Render the consent/login page. mcpAuthRouter's /authorize handler has
+  // Enter the protected web consent page. mcpAuthRouter's /authorize handler has
   // already validated redirect_uri against the registered client.
   async authorize(client, params, res) {
-    res.status(200).set('Content-Type', 'text/html').send(renderConsentPage({
+    const query = new URLSearchParams({
       client_id: client.client_id,
       redirect_uri: params.redirectUri,
       code_challenge: params.codeChallenge,
       code_challenge_method: 'S256',
-      state: params.state,
+      state: params.state || '',
       scope: (params.scopes || []).join(' '),
       resource: params.resource ? params.resource.toString() : '',
-    }, { clientName: client.client_name }));
+    });
+    res.set('Cache-Control', 'no-store');
+    res.redirect(302, `/connect/authorize?${query}`);
   }
 
   async challengeForAuthorizationCode(client, authorizationCode) {

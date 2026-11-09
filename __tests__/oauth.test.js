@@ -122,10 +122,10 @@ describe('ApOAuthProvider', () => {
     await expect(provider.verifyAccessToken(fakeJwt({ sub: 'u1', exp: 1 }))).rejects.toThrow(/expired/);
   });
 
-  it('authorize renders the consent page', async () => {
+  it('authorize redirects to the protected consent page', async () => {
     const res = resMock();
     await provider.authorize(client, { redirectUri: 'https://claude.ai/cb', codeChallenge: 'C', state: 's', scopes: ['agentplanner'] }, res);
-    expect(res.send.mock.calls[0][0]).toMatch(/Connect AgentPlanner/);
+    expect(res.redirect.mock.calls[0][1]).toMatch(/^\/connect\/authorize\?/);
   });
 });
 
@@ -145,7 +145,7 @@ describe('consent handler', () => {
     handler = makeConsentHandler({ store, apiUrl: 'http://api.test' });
     axios.post.mockReset();
   });
-  const reqWith = (body) => ({ body: { client_id: 'c1', redirect_uri: 'https://claude.ai/cb', code_challenge: 'C', state: 'st', scope: 'agentplanner', ...body } });
+  const reqWith = (body) => ({ body: { client_id: 'c1', redirect_uri: 'https://claude.ai/cb', code_challenge: 'C'.repeat(43), code_challenge_method: 'S256', state: 'st', scope: 'agentplanner', ...body } });
 
   it('logs in, creates a code bound to user_id (no AP creds), redirects with code+state', async () => {
     axios.post.mockResolvedValue({ data: { user: { id: 'u1' }, session: { access_token: 'jwt' } } });

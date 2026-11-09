@@ -13,8 +13,9 @@ Client Registration (DCR).
 ### claude.ai / Claude Design
 1. **Settings → Connectors → Add custom connector**.
 2. URL: `https://agentplanner.io/mcp`
-3. **Connect** → AgentPlanner sign-in page → log in with your AgentPlanner email
-   + password and authorize.
+3. **Connect** → AgentPlanner sign-in page → sign in with Google, GitHub, or
+   email/password, then explicitly **Authorize connection**. An existing
+   AgentPlanner browser session can be reused; no separate password is needed.
 4. Claude can now call AgentPlanner tools (`list_plans`, `plan_analysis`,
    `task_context`, …) as you.
 
@@ -49,6 +50,7 @@ No manual OAuth Client ID is needed for any connector — DCR handles it.
 | `/oauth/register` | RFC 7591 — Dynamic Client Registration |
 | `/oauth/authorize` | Consent + AP login (renders sign-in page) |
 | `/oauth/consent` | Form POST → authenticates via AP `/auth/login`, issues code |
+| `/oauth/consent-info` | Validates request and returns registered client details for the web consent page |
 | `/oauth/token` | Authorization Code + PKCE (S256) → access/refresh tokens |
 | `/oauth/revoke` | RFC 7009 — revokes a refresh token (disconnect) |
 
@@ -73,6 +75,15 @@ connectors discover the AS automatically.
   access-token TTL. **No AP credential is stored at rest.**
 
 ## Deployment requirements (IMPORTANT)
+
+Deploy the companion web UI with `/connect/authorize` before deploying this MCP
+version. `/oauth/authorize` redirects into that protected page; the existing web
+login preserves the complete OAuth request through Google/GitHub/email login.
+Consent is an explicit JSON POST to `/oauth/consent` with the browser session's
+Bearer token, verified server-to-server using `/auth/profile`. Tokens are never
+put in redirect URLs. Legacy email/password form submissions remain supported.
+Store failures return 503 instead of escaping Express 4's async handler. Login
+throttling returns 429; expired browser sessions return 401 for normal recovery.
 
 1. **nginx routing.** Proxy these to the MCP container:
    - `/.well-known/oauth-authorization-server`
