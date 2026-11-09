@@ -45,9 +45,11 @@ function renderConsentPage(params, { clientName = 'an application', error = null
 }
 
 // Builds the POST /oauth/consent handler. `apiUrl` is the AgentPlanner REST base.
-function makeConsentHandler({ store, apiUrl }) {
+function makeConsentHandler({ store, apiUrl, infoOnly = false }) {
   return async (req, res) => {
-    const b = req.body || {};
+    const b = (infoOnly ? req.query : req.body) || {};
+    const json = infoOnly || !!req.is?.('application/json');
+    res.set('Cache-Control', 'no-store');
     const params = {
       client_id: b.client_id,
       redirect_uri: b.redirect_uri,
@@ -58,41 +60,70 @@ function makeConsentHandler({ store, apiUrl }) {
       resource: b.resource,
     };
 
-    const client = await store.getClient(b.client_id);
-    if (!client) {
-      return res.status(400).send('Unknown client.');
-    }
-    // Defense-in-depth: redirect_uri must be one the client registered.
-    if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(b.redirect_uri)) {
-      return res.status(400).send('Invalid redirect_uri.');
-    }
-
-    let session;
+    let client;
+    const fail = (status, message) => json
+      ? res.status(status).json({ error: message })
+      : res.status(status).send(renderConsentPage(params, { clientName: client?.client_name, error: message }));
     try {
-      const resp = await axios.post(`${apiUrl}/auth/login`, { email: b.email, password: b.password }, { timeout: 10000 });
-      session = resp.data?.session;
-      var userId = resp.data?.user?.id;
-    } catch (err) {
-      const msg = err.response?.status === 401 ? 'Invalid email or password.' : 'Sign-in failed. Please try again.';
-      return res.status(200).send(renderConsentPage(params, { clientName: client.client_name, error: msg }));
+      if (typeof b.client_id !== 'string' || typeof b.redirect_uri !== 'string' ||
+          typeof b.code_challenge !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(b.code_challenge) ||
+          b.code_challenge_method !== 'S256' ||
+          (b.scope && (typeof b.scope !== 'string' || b.scope.split(' ').filter(Boolean).some(s => s !== 'agentplanner'))) ||
+          (b.state !== undefined && typeof b.state !== 'string')) {
+        return fail(400, 'Invalid authorization request. Please reconnect from your connector settings.');
+      }
+      client = await store.getClient(b.client_id);
+      if (!client) {
+        return fail(400, 'Unknown client. Please reconnect from your connector settings.');
+      }
+      // Defense-in-depth: redirect_uri must be one the client registered.
+      if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(b.redirect_uri)) {
+        return fail(400, 'Invalid redirect_uri.');
+      }
+      if (infoOnly) return res.json({ client_name: client.client_name || 'an application', redirect_uri: b.redirect_uri });
+
+      let userId;
+      try {
+        if (json) {
+          const authorization = req.headers?.authorization;
+          if (typeof authorization !== 'string' || !/^Bearer \S+$/i.test(authorization)) {
+            return fail(401, 'Please sign in to AgentPlanner again.');
+          }
+          const resp = await axios.get(`${apiUrl}/auth/profile`, { headers: { Authorization: authorization }, timeout: 10000 });
+          userId = resp.data?.id;
+        } else {
+          const resp = await axios.post(`${apiUrl}/auth/login`, { email: b.email, password: b.password }, { timeout: 10000 });
+          if (resp.data?.session?.access_token) userId = resp.data?.user?.id;
+        }
+      } catch (err) {
+        const status = err.response?.status;
+        if (status === 401) return fail(json ? 401 : 200, json ? 'Please sign in to AgentPlanner again.' : 'Invalid email or password.');
+        if (status === 429) return fail(429, 'Too many sign-in attempts. Please wait a minute and try again.');
+        return fail(503, 'Sign-in is temporarily unavailable. Please try again.');
+      }
+
+      if (!userId) {
+        return fail(503, 'Sign-in is temporarily unavailable. Please try again.');
+      }
+
+      const code = await store.createCode({
+        clientId: b.client_id,
+        codeChallenge: b.code_challenge,
+        redirectUri: b.redirect_uri,
+        scopes: (b.scope || '').split(' ').filter(Boolean),
+        userId,
+      });
+
+      const url = new URL(b.redirect_uri);
+      url.searchParams.set('code', code);
+      if (b.state) url.searchParams.set('state', b.state);
+      if (json) return res.json({ redirect_url: url.toString() });
+      return res.redirect(302, url.toString());
+    } catch {
+      // Express 4 does not forward rejected async handlers. Do not log axios
+      // errors here: their config may contain credentials or internal secrets.
+      return fail(503, 'Authorization is temporarily unavailable. Please try again.');
     }
-
-    if (!session?.access_token) {
-      return res.status(200).send(renderConsentPage(params, { clientName: client.client_name, error: 'Sign-in failed. Please try again.' }));
-    }
-
-    const code = await store.createCode({
-      clientId: b.client_id,
-      codeChallenge: b.code_challenge,
-      redirectUri: b.redirect_uri,
-      scopes: (b.scope || '').split(' ').filter(Boolean),
-      userId,
-    });
-
-    const url = new URL(b.redirect_uri);
-    url.searchParams.set('code', code);
-    if (b.state) url.searchParams.set('state', b.state);
-    return res.redirect(302, url.toString());
   };
 }
 
