@@ -81,8 +81,9 @@ AgentPlanner exposes a **BDI-aligned** surface — Beliefs (state queries), Desi
 
 A Workspace is a folder under an Organization that owns goals + plans — a grouping primitive so a single org isn't a flat soup of unrelated work. A Blueprint is a dehydrated, reusable shape (scope `plan` or `workspace`); forking instantiates it as a new plan inside a target workspace. v1 supports plan-scope only.
 
-- `list_workspaces` — list workspaces in an organization
+- `list_workspaces` — list workspaces in an organization; the reply includes the `organization_id` it used
 - `create_workspace` — create a new folder under an org (auto-slug)
+- Both take an optional `organization_id`. Omit it to use your organization; if you belong to several, the tool replies with their ids and names so you can choose.
 - `list_blueprints` — list blueprints visible to user (owned + public/unlisted), filterable by scope
 - `fork_blueprint` — instantiate a plan-scope blueprint as a new plan in a target workspace
 - `save_as_blueprint` — snapshot a live plan as a reusable blueprint. Captures structure, agent_instructions, and dependencies; excludes statuses, claims, knowledge episodes, logs, decisions, and agent assignments

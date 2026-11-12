@@ -289,6 +289,7 @@ Add the same JSON config to your Cline MCP settings in VS Code.
 ### Workspaces & Blueprints
 - `list_workspaces` — list workspaces (goal/plan folders) in an organization
 - `create_workspace` — create a new workspace inside an organization (slug auto-generated and de-duped)
+- Both take an optional `organization_id`, defaulting to your organization. If you belong to several, they return the choices.
 - `list_blueprints` — list blueprints visible to you (owned + public/unlisted), filterable by scope/visibility
 - `save_as_blueprint` — snapshot a live plan as a reusable plan-scope blueprint (structure + agent_instructions + dependencies; excludes run-state)
 - `fork_blueprint` — fork a plan-scope blueprint into a target workspace as a new plan (statuses reset, lineage recorded)

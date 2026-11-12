@@ -71,8 +71,8 @@ A Workspace is a folder under an Organization that owns goals + plans. A Bluepri
 
 | Tool | When |
 |---|---|
-| `list_workspaces` | List workspaces in an org (default and any user-created folders) |
-| `create_workspace` | Create a new workspace inside an org |
+| `list_workspaces` | List workspaces in an org (default and any user-created folders). `organization_id` is optional |
+| `create_workspace` | Create a new workspace inside an org. `organization_id` is optional |
 | `list_blueprints` | List blueprints visible to user (owned + public/unlisted) |
 | `fork_blueprint` | Instantiate a plan-scope blueprint as a new plan in a target workspace |
 | `save_as_blueprint` | Snapshot a live plan as a reusable blueprint (excludes run-state) |
