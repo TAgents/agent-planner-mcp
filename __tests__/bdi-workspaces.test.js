@@ -13,6 +13,10 @@ const FORKED_PLAN_ID = 'forked-plan-uuid';
 
 function makeApiClient(overrides = {}) {
   return {
+    organizations: {
+      list: jest.fn().mockResolvedValue([{ id: ORG_ID, name: 'Acme' }]),
+      ...overrides.organizations,
+    },
     workspaces: {
       list: jest.fn().mockResolvedValue({ workspaces: [{ id: WS_ID, title: 'Default', isDefault: true }] }),
       create: jest.fn().mockResolvedValue({ id: WS_ID, organizationId: ORG_ID, title: 'New WS', slug: 'new-ws' }),
@@ -84,6 +88,64 @@ describe('create_workspace', () => {
     const res = await workspaces.handlers.create_workspace({ organization_id: ORG_ID, title: 'x' }, api);
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/slug taken/);
+  });
+});
+
+describe('organization_id is optional when it can be resolved', () => {
+  const TWO_ORGS = [
+    { id: 'org-a', name: 'Personal' },
+    { id: 'org-b', name: 'Acme' },
+  ];
+
+  it('list_workspaces uses the only organization and reports its id', async () => {
+    const api = makeApiClient();
+    const parsed = parse(await workspaces.handlers.list_workspaces({}, api));
+    expect(api.workspaces.list).toHaveBeenCalledWith({ organizationId: ORG_ID, includeArchived: false });
+    expect(parsed.organization_id).toBe(ORG_ID);
+    expect(parsed.organization_name).toBe('Acme');
+  });
+
+  it('create_workspace uses the only organization', async () => {
+    const api = makeApiClient();
+    const parsed = parse(await workspaces.handlers.create_workspace({ title: 'New WS' }, api));
+    expect(api.workspaces.create).toHaveBeenCalledWith(expect.objectContaining({
+      organization_id: ORG_ID,
+      title: 'New WS',
+    }));
+    expect(parsed.workspace.id).toBe(WS_ID);
+  });
+
+  it('does not look up organizations when an id is given', async () => {
+    const api = makeApiClient();
+    await workspaces.handlers.create_workspace({ organization_id: 'org-given', title: 'x' }, api);
+    expect(api.organizations.list).not.toHaveBeenCalled();
+    expect(api.workspaces.create).toHaveBeenCalledWith(expect.objectContaining({ organization_id: 'org-given' }));
+  });
+
+  it.each(['list_workspaces', 'create_workspace'])(
+    '%s lists the choices instead of guessing between several organizations',
+    async (tool) => {
+      const api = makeApiClient({ organizations: { list: jest.fn().mockResolvedValue(TWO_ORGS) } });
+      const res = await workspaces.handlers[tool]({ title: 'x' }, api);
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/org-a.*Personal/s);
+      expect(res.content[0].text).toMatch(/org-b.*Acme/s);
+      expect(api.workspaces.list).not.toHaveBeenCalled();
+      expect(api.workspaces.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('explains when the user has no organization', async () => {
+    const api = makeApiClient({ organizations: { list: jest.fn().mockResolvedValue([]) } });
+    const res = await workspaces.handlers.create_workspace({ title: 'x' }, api);
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/no organization/i);
+  });
+
+  it('marks organization_id as optional in both tool schemas', () => {
+    const byName = Object.fromEntries(workspaces.definitions.map((d) => [d.name, d]));
+    expect(byName.list_workspaces.inputSchema.required || []).not.toContain('organization_id');
+    expect(byName.create_workspace.inputSchema.required).toEqual(['title']);
   });
 });
 
