@@ -12,30 +12,68 @@ const { asOf, formatResponse, errorResponse, safeArray, apiErrorMessage } = requ
 
 // ─── Workspaces ──────────────────────────────────────────────────
 
+const ORGANIZATION_ID_PROPERTY = {
+  type: 'string',
+  description:
+    "Optional. Omit it to use your organization. If you belong to several, " +
+    "the tool replies with their ids and names so you can pick one.",
+};
+
+/**
+ * Resolve the organization a workspace call should use. No other tool exposes
+ * organization ids, so an omitted id falls back to the caller's only org, and
+ * several orgs return the choices instead of a silent guess.
+ * Returns { organizationId } or { error } (an errorResponse to return as is).
+ */
+async function resolveOrganization(organizationId, apiClient, tool) {
+  if (organizationId) return { organizationId };
+  let orgs;
+  try {
+    orgs = safeArray(await apiClient.organizations.list());
+  } catch (err) {
+    return { error: errorResponse('upstream_unavailable', `${tool} failed: could not look up your organizations: ${err.message}`) };
+  }
+  if (orgs.length === 1) return { organizationId: orgs[0].id, organizationName: orgs[0].name };
+  if (orgs.length === 0) {
+    return { error: errorResponse('no_organization', `${tool} failed: you belong to no organization yet. Create one first.`) };
+  }
+  const choices = orgs.map((o) => `- ${o.id} (${o.name})`).join('\n');
+  return {
+    error: errorResponse(
+      'organization_required',
+      `${tool} needs organization_id because you belong to several organizations. Call it again with one of:\n${choices}`,
+    ),
+  };
+}
+
 const listWorkspacesDefinition = {
   name: 'list_workspaces',
   description:
     "List workspaces in an organization. A workspace is a folder that owns " +
-    "goals + plans. Returns archived workspaces only when include_archived=true.",
+    "goals + plans. Returns archived workspaces only when include_archived=true. " +
+    "The reply includes the organization_id it used, and its name when the tool chose it.",
   inputSchema: {
     type: 'object',
     properties: {
-      organization_id: { type: 'string', description: "Required. Organization to scope to." },
+      organization_id: ORGANIZATION_ID_PROPERTY,
       include_archived: { type: 'boolean', default: false },
     },
-    required: ['organization_id'],
   },
 };
 
 async function listWorkspacesHandler(args, apiClient) {
-  const { organization_id, include_archived } = args;
+  const { include_archived } = args;
+  const org = await resolveOrganization(args.organization_id, apiClient, 'list_workspaces');
+  if (org.error) return org.error;
   try {
     const data = await apiClient.workspaces.list({
-      organizationId: organization_id,
+      organizationId: org.organizationId,
       includeArchived: include_archived === true,
     });
     return formatResponse({
       as_of: asOf(),
+      organization_id: org.organizationId,
+      ...(org.organizationName ? { organization_name: org.organizationName } : {}),
       workspaces: safeArray(data.workspaces || data),
     });
   } catch (err) {
@@ -52,18 +90,21 @@ const createWorkspaceDefinition = {
   inputSchema: {
     type: 'object',
     properties: {
-      organization_id: { type: 'string' },
+      organization_id: ORGANIZATION_ID_PROPERTY,
       title: { type: 'string' },
       description: { type: 'string' },
       icon: { type: 'string', description: "Optional emoji or icon token." },
       slug: { type: 'string', description: "Optional. Auto-generated from title if omitted." },
     },
-    required: ['organization_id', 'title'],
+    required: ['title'],
   },
 };
 
 async function createWorkspaceHandler(args, apiClient) {
-  const { organization_id, title, description, icon, slug } = args;
+  const { title, description, icon, slug } = args;
+  const org = await resolveOrganization(args.organization_id, apiClient, 'create_workspace');
+  if (org.error) return org.error;
+  const organization_id = org.organizationId;
   try {
     const ws = await apiClient.workspaces.create({
       organization_id,
